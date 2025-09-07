@@ -4,10 +4,13 @@ import pandas as pd
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator, EMAIndicator
+from ta.trend import SMAIndicator, EMAIndicator, MACD
+from ta.volatility import BollingerBands
 import plotly.graph_objects as go
+from datetime import datetime
+import requests
 
-st.set_page_config(page_title="Stock Analysis App", layout="wide")
+st.set_page_config(page_title="Advanced Stock Analysis App", layout="wide")
 st.title("📊 Advanced Stock Analysis & Prediction App")
 
 # --- Sidebar ---
@@ -16,11 +19,19 @@ tickers_input = st.sidebar.text_input("Enter Stock Tickers (comma-separated)", "
 period = st.sidebar.selectbox("Select Historical Period", ["1mo", "3mo", "6mo", "1y", "5y"])
 tickers = [t.strip().upper() for t in tickers_input.split(",")]
 
+# --- Function to fetch sentiment score (example using placeholder API) ---
+def get_sentiment_score(ticker):
+    # Placeholder: in practice, connect to news API / sentiment API
+    try:
+        # Here we simulate a sentiment score between -1 (negative) to +1 (positive)
+        return round(np.random.uniform(-1,1), 2)
+    except:
+        return None
+
 # --- Loop through tickers ---
 for ticker in tickers:
     st.header(f"{ticker} Analysis")
     try:
-        # --- Fetch historical data ---
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
 
@@ -28,61 +39,42 @@ for ticker in tickers:
             st.warning("No historical data available.")
             continue
 
-  # --- Price Chart ---
-st.subheader("Price Chart")
+        # --- Latest Price ---
+        latest_price = hist['Close'].iloc[-1]
+        st.metric(label="Latest Closing Price", value=f"${latest_price:.2f}")
 
-# Show latest closing price as a number
-latest_price = hist['Close'].iloc[-1]
-st.metric(label="Latest Closing Price", value=f"${latest_price:.2f}")
-
-# Plot interactive chart with Plotly
-fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=hist.index,
-    y=hist['Close'],
-    mode='lines+markers',   # Add markers to highlight prices
-    name='Close',
-    line=dict(color='blue'),
-    marker=dict(size=4, color='red')
-))
-
-# Optional: highlight latest price on the chart
-fig.add_trace(go.Scatter(
-    x=[hist.index[-1]],
-    y=[latest_price],
-    mode='markers+text',
-    name='Latest Price',
-    marker=dict(color='green', size=10),
-    text=[f"${latest_price:.2f}"],
-    textposition="top right"
-))
-
-fig.update_layout(
-    height=400,
-    title=f"{ticker} Closing Prices",
-    xaxis_title="Date",
-    yaxis_title="Price (USD)",
-    showlegend=True
-)
-
-st.plotly_chart(fig, use_container_width=True)
-
-
-        # --- Technical Indicators ---
-        st.subheader("Technical Indicators")
+        # --- Candlestick Chart with Bollinger Bands & MACD ---
+        st.subheader("Candlestick Chart + Bollinger Bands + MACD")
         hist['SMA20'] = SMAIndicator(hist['Close'], 20).sma_indicator()
-        hist['EMA20'] = EMAIndicator(hist['Close'], 20).ema_indicator()
-        hist['RSI14'] = RSIIndicator(hist['Close'], 14).rsi()
-        st.line_chart(hist[['Close', 'SMA20', 'EMA20']])
-        st.line_chart(hist['RSI14'])
+        bb = BollingerBands(hist['Close'], 20, 2)
+        hist['BB_upper'] = bb.bollinger_hband()
+        hist['BB_lower'] = bb.bollinger_lband()
+        macd_indicator = MACD(hist['Close'])
+        hist['MACD'] = macd_indicator.macd()
+        hist['MACD_signal'] = macd_indicator.macd_signal()
+
+        fig = go.Figure()
+        fig.add_trace(go.Candlestick(
+            x=hist.index,
+            open=hist['Open'],
+            high=hist['High'],
+            low=hist['Low'],
+            close=hist['Close'],
+            name='Candlestick'
+        ))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_upper'], line=dict(color='orange'), name='BB Upper'))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_lower'], line=dict(color='orange'), name='BB Lower'))
+        fig.update_layout(height=500, title=f"{ticker} Candlestick + Bollinger Bands", xaxis_title="Date", yaxis_title="Price")
+        st.plotly_chart(fig, use_container_width=True)
         st.markdown("""
         **Interpretation:**  
-        - **SMA/EMA:** Show average price trends; EMA reacts faster to recent changes.  
-        - **RSI:** >70 = overbought, <30 = oversold. Indicates potential reversal points.
+        - Candlestick chart shows daily price action.  
+        - Bollinger Bands indicate volatility; price near upper band may be overbought, lower band oversold.  
+        - MACD signals trend strength and potential reversals.
         """)
 
-        # --- Medallion-style Prediction ---
-        st.subheader("📈 Short-Term Price Prediction")
+        # --- Advanced Prediction Signals (Linear Regression + Anomaly) ---
+        st.subheader("Advanced Prediction Signals")
         lookback = 30
         if len(hist) >= lookback:
             hist['Day'] = np.arange(len(hist))
@@ -93,6 +85,12 @@ st.plotly_chart(fig, use_container_width=True)
             next_day = np.array([[X[-1][0] + 1]])
             predicted_price = model.predict(next_day)[0]
             current_price = hist['Close'].iloc[-1]
+
+            # Anomaly detection (Z-score)
+            hist['Returns'] = hist['Close'].pct_change()
+            hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
+            is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
+
             st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
             if predicted_price > current_price * 1.002:
                 st.success("Signal: BUY ✅")
@@ -100,22 +98,14 @@ st.plotly_chart(fig, use_container_width=True)
                 st.error("Signal: SELL ❌")
             else:
                 st.info("Signal: HOLD ⏸️")
+            if is_anomaly:
+                st.warning("Anomaly detected: unusual price movement ⚡")
         else:
             st.warning("Not enough data for prediction (needs at least 30 days).")
-        st.markdown("**Interpretation:** Predicts next-day price based on recent trends using linear regression.")
 
-        # --- Anomaly Trading ---
-        st.subheader("⚡ Anomaly Trading Signals")
-        hist['Returns'] = hist['Close'].pct_change()
-        hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
-        anomalies = hist[abs(hist['ZScore']) > 2]
-        if not anomalies.empty:
-            st.dataframe(anomalies[['Close','Returns','ZScore']])
-        else:
-            st.info("No anomalies detected.")
-        st.markdown("**Interpretation:** Z-Score > 2 indicates unusual price movement. Could suggest a short-term trading opportunity.")
+        st.markdown("**Interpretation:** Combines short-term regression prediction and anomaly detection to provide high-confidence signals.")
 
-        # --- Déjà Vue Trading ---
+        # --- Déjà Vue Trading Signals ---
         st.subheader("🔁 Déjà Vue Trading Signals")
         pattern_length = 5
         threshold_similarity = 0.95
@@ -133,12 +123,11 @@ st.plotly_chart(fig, use_container_width=True)
             st.info("No similar historical patterns found.")
         st.markdown("**Interpretation:** Detects repeating historical price patterns. High similarity may suggest history could repeat.")
 
-        # --- Trending & Reversion Signals ---
+        # --- Trending & Mean-Reversion Signals ---
         st.subheader("📊 Trending & Mean-Reversion Signals")
         hist['SMA50'] = hist['Close'].rolling(50).mean()
         hist['SMA200'] = hist['Close'].rolling(200).mean()
         hist['Trend'] = np.where(hist['SMA50'] > hist['SMA200'], 'Uptrend', 'Downtrend')
-        st.line_chart(hist[['Close','SMA50','SMA200']])
         st.write("Latest Trend Signal:", hist['Trend'].iloc[-1])
         hist['Deviation'] = (hist['Close'] - hist['SMA50']) / hist['SMA50']
         if hist['Deviation'].iloc[-1] > 0.03:
@@ -158,10 +147,13 @@ st.plotly_chart(fig, use_container_width=True)
         except:
             st.write("PTB not available")
 
-        # --- Situational Analysis ---
-        st.subheader("🧐 Situational Analysis Trading")
+        # --- Situational Analysis & Sentiment Score ---
+        st.subheader("🧐 Situational Analysis & Sentiment Score")
         rsi = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
         vol_percent = (hist['Close'].iloc[-1] - hist['Close'].iloc[-20:].mean()) / hist['Close'].iloc[-20:].mean() * 100
+        sentiment_score = get_sentiment_score(ticker)
+        st.write(f"Sentiment Score (simulated): {sentiment_score} (-1=negative, +1=positive)")
+
         if rsi > 70:
             st.warning("RSI indicates overbought")
         elif rsi < 30:
@@ -172,7 +164,7 @@ st.plotly_chart(fig, use_container_width=True)
             st.info("Price near 52-week low")
         if abs(vol_percent) > 5:
             st.write(f"Significant deviation from 20-day mean: {vol_percent:.2f}%")
-        st.markdown("**Interpretation:** Combines RSI, 52-week levels, and short-term volatility for potential trading opportunities.")
+        st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for comprehensive situational insights.")
 
     except Exception as e:
         st.error(f"Error processing {ticker}: {e}")
