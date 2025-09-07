@@ -204,6 +204,8 @@ for ticker in tickers:
         elif score < 0: overall = "SELL ❌"
         else: overall = "HOLD ⏸️"
 
-        st.subheader("📌 Overall Recommendation")
-        st.markdown(f"**{overall}**")
-        st.markdown("
+       # --- Overall Recommendation ---
+st.subheader("📌 Overall Recommendation")
+st.markdown(f"**{overall}**")
+st.markdown("This concludes the analysis for the selected stock(s).")
+
