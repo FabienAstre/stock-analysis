@@ -71,26 +71,29 @@ for ticker in tickers:
         - **MACD line crosses below signal** → bearish trend → consider selling or holding off.
         """)
 
-       # --- Advanced Prediction & Anomaly Signals ---
+# --- Advanced Prediction & Anomaly Signals ---
 st.subheader("Advanced Prediction & Anomaly Signals")
 
-lookback = 30
+lookback = 30  # number of days to use for prediction
 if len(hist) >= lookback:
+    # Prepare data for linear regression
     hist['Day'] = np.arange(len(hist))
-    X = hist['Day'].values[-lookback:].reshape(-1,1)
+    X = hist['Day'].values[-lookback:].reshape(-1, 1)
     y = hist['Close'].values[-lookback:]
+    
     model = LinearRegression()
     model.fit(X, y)
+    
     next_day = np.array([[X[-1][0] + 1]])
     predicted_price = model.predict(next_day)[0]
     current_price = hist['Close'].iloc[-1]
 
-    # Z-score anomaly
+    # --- Z-score anomaly detection ---
     hist['Returns'] = hist['Close'].pct_change()
     hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
-    is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
+    is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2  # large deviation threshold
 
-    # Determine dynamic signal
+    # --- Determine dynamic signal ---
     if predicted_price > current_price * 1.002:
         signal = "BUY ✅"
         signal_action = "Potential buy opportunity"
@@ -101,11 +104,13 @@ if len(hist) >= lookback:
         signal = "HOLD ⏸️"
         signal_action = "Price predicted stable, consider holding"
 
+    # --- Display predicted price and signal ---
     st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
     st.write(f"Signal: {signal}")
 
-    # Dynamic interpretation
+    # --- Dynamic interpretation & actions ---
     interpretation = []
+
     if predicted_price > current_price:
         interpretation.append(f"Predicted price (${predicted_price:.2f}) is higher than current (${current_price:.2f}) → {signal_action}")
     elif predicted_price < current_price:
@@ -119,8 +124,10 @@ if len(hist) >= lookback:
     st.markdown("**Interpretation & Actions:**")
     for item in interpretation:
         st.write("- " + item)
+
 else:
     st.warning("Not enough data for prediction (requires at least 30 days).")
+
 
 
         # --- Déjà Vue Trading ---
