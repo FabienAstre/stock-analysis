@@ -3,7 +3,7 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator, MACD, ADXIndicator
+from ta.trend import SMAIndicator, EMAIndicator, MACD, ADXIndicator
 from ta.volatility import BollingerBands
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
@@ -50,6 +50,7 @@ for ticker in tickers:
     hist['SMA50'] = SMAIndicator(hist['Close'], 50).sma_indicator()
     hist['SMA200'] = SMAIndicator(hist['Close'], 200).sma_indicator()
     hist['SMA20'] = SMAIndicator(hist['Close'], 20).sma_indicator()
+    hist['EMA10'] = EMAIndicator(hist['Close'], 10).ema_indicator()
     bb = BollingerBands(hist['Close'], 20, 2)
     hist['BB_upper'] = bb.bollinger_hband()
     hist['BB_lower'] = bb.bollinger_lband()
@@ -60,6 +61,8 @@ for ticker in tickers:
     rsi_value = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
     adx_indicator = ADXIndicator(hist['High'], hist['Low'], hist['Close'], 14)
     hist['ADX'] = adx_indicator.adx()
+    hist['Volume_SMA20'] = hist['Volume'].rolling(20).mean()
+    deviation = (hist['Close'].iloc[-1] - hist['SMA50'].iloc[-1]) / hist['SMA50'].iloc[-1]
 
     # --- Déjà Vue Patterns ---
     pattern_length = 5
@@ -102,8 +105,6 @@ for ticker in tickers:
     signal = "HOLD ⏸️"
     predicted_price = None
     lookback = 60
-    is_anomaly = False
-    conf_interval = None
 
     close_series = hist['Close'][-lookback:].dropna()
     if len(close_series) >= lookback:
@@ -139,11 +140,9 @@ for ticker in tickers:
             future = prophet.make_future_dataframe(periods=1)
             forecast = prophet.predict(future)
             prophet_pred = forecast['yhat'].iloc[-1]
-            conf_interval = (forecast['yhat_lower'].iloc[-1], forecast['yhat_upper'].iloc[-1])
         except:
             pass
 
-        # Ensemble
         preds = [p for p in [arima_pred, lr_pred, prophet_pred] if p is not None]
         if preds:
             predicted_price = np.mean(preds)
@@ -153,8 +152,6 @@ for ticker in tickers:
             elif predicted_price < current_price*0.998: signal = "SELL ❌"
 
             st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
-            if conf_interval:
-                st.write(f"(95% CI: ${conf_interval[0]:.2f} – ${conf_interval[1]:.2f})")
             st.write(f"Signal: {signal}")
 
         # Z-score anomaly
@@ -165,11 +162,9 @@ for ticker in tickers:
             st.write("⚡ Anomaly detected: unusual price movement")
 
         st.markdown("**Explanation:** Combines ARIMA, Linear Regression, Prophet, and anomaly detection for robust prediction.")
-
     else:
         st.warning("Not enough data for prediction (requires at least 60 non-NaN closing prices).")
 
-      
     # --- Déjà Vue Signals ---
     st.subheader("🔁 Déjà Vue Trading Signals")
     if matches:
@@ -190,86 +185,22 @@ for ticker in tickers:
         st.write("No similar historical patterns found.")
     st.markdown("**Explanation:** Shows repeating patterns, similarity, and subsequent trend direction.")
 
- # --- Trending & Mean-Reversion Signals ---
-st.subheader("📊 Trending & Mean-Reversion Signals")
+    # --- Trending & Mean-Reversion Signals ---
+    st.subheader("📊 Trending & Mean-Reversion Signals")
+    trend_signal = "Uptrend" if hist['EMA10'].iloc[-1] > hist['SMA50'].iloc[-1] else "Downtrend"
+    rsi = rsi_value
+    adx = hist['ADX'].iloc[-1]
+    volume_trend = hist['Volume_SMA20'].iloc[-1]
 
-# --- Calculate indicators ---
-hist['EMA10'] = EMAIndicator(hist['Close'], 10).ema_indicator()
-hist['ADX'] = ADXIndicator(hist['High'], hist['Low'], hist['Close'], 14).adx()
-hist['Volume_SMA20'] = hist['Volume'].rolling(20).mean()
-
-# --- Determine trend ---
-trend_signal = "Uptrend" if hist['EMA10'].iloc[-1] > hist['SMA50'].iloc[-1] else "Downtrend"
-
-# --- RSI ---
-rsi = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
-
-# --- ADX ---
-adx = hist['ADX'].iloc[-1]
-
-# --- Volume trend ---
-volume_trend = hist['Volume_SMA20'].iloc[-1]
-
-# --- Display values ---
-st.write(f"Latest Trend Signal: {trend_signal}")
-st.write(f"RSI: {rsi:.2f} | ADX: {adx:.2f} | Volume Trend (SMA20): {volume_trend:.0f}")
-
-# --- Explanation ---
-st.markdown("""
-**Explanation:**  
-- **EMA10 vs SMA50:** Short-term EMA above SMA50 indicates short-term bullish momentum; below indicates bearish.  
-- **RSI:** Measures overbought (>70) or oversold (<30) conditions.  
-- **ADX:** Measures trend strength; >25 indicates strong trend, <20 weak trend.  
-- **Volume Trend (SMA20):** Rising volume confirms market participation supporting the trend.
-""")
-
-# --- Plot improved chart ---
-import plotly.graph_objects as go
-
-fig_trend = go.Figure()
-
-# Price candlestick
-fig_trend.add_trace(go.Candlestick(
-    x=hist.index,
-    open=hist['Open'],
-    high=hist['High'],
-    low=hist['Low'],
-    close=hist['Close'],
-    name='Candlestick'
-))
-
-# SMA50, SMA200
-fig_trend.add_trace(go.Scatter(x=hist.index, y=hist['SMA50'], line=dict(color='blue', width=1), name='SMA50'))
-fig_trend.add_trace(go.Scatter(x=hist.index, y=hist['SMA200'], line=dict(color='red', width=1), name='SMA200'))
-
-# EMA10
-fig_trend.add_trace(go.Scatter(x=hist.index, y=hist['EMA10'], line=dict(color='green', width=1, dash='dot'), name='EMA10'))
-
-# Volume as bar chart
-fig_trend.add_trace(go.Bar(
-    x=hist.index,
-    y=hist['Volume'],
-    marker_color='lightgrey',
-    name='Volume',
-    yaxis='y2'
-))
-
-# Layout with secondary y-axis for volume
-fig_trend.update_layout(
-    height=500,
-    xaxis_title='Date',
-    yaxis_title='Price',
-    yaxis2=dict(
-        overlaying='y',
-        side='right',
-        title='Volume',
-        showgrid=False
-    ),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
-)
-
-st.plotly_chart(fig_trend, use_container_width=True)
-
+    st.write(f"Latest Trend Signal: {trend_signal}")
+    st.write(f"RSI: {rsi:.2f} | ADX: {adx:.2f} | Volume Trend (SMA20): {volume_trend:.0f}")
+    st.markdown("""
+    **Explanation:**  
+    - **EMA10 vs SMA50:** Short-term EMA above SMA50 indicates short-term bullish momentum; below indicates bearish.  
+    - **RSI:** Measures overbought (>70) or oversold (<30) conditions.  
+    - **ADX:** Measures trend strength; >25 indicates strong trend, <20 weak trend.  
+    - **Volume Trend (SMA20):** Rising volume confirms market participation supporting the trend.
+    """)
 
     # --- Price to Tangible Book ---
     st.subheader("💰 Price to Tangible Book (PTB)")
@@ -282,8 +213,8 @@ st.plotly_chart(fig_trend, use_container_width=True)
 
     # --- Key Reasons & Overall Recommendation ---
     reasons = [f"Trend: {trend_signal}"]
-    if rsi_value < 30: reasons.append("RSI oversold → potential buy")
-    elif rsi_value > 70: reasons.append("RSI overbought → potential sell")
+    if rsi < 30: reasons.append("RSI oversold → potential buy")
+    elif rsi > 70: reasons.append("RSI overbought → potential sell")
     if hist['MACD_cross'].iloc[-1] == 'bullish': reasons.append("MACD bullish crossover")
     else: reasons.append("MACD bearish crossover")
     if hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]: reasons.append("Price below lower Bollinger → potential buy")
@@ -300,13 +231,12 @@ st.plotly_chart(fig_trend, use_container_width=True)
     for r in reasons:
         st.write("- " + r)
 
-    # --- Overall Recommendation (Weighted AI-like) ---
     weights = {"prediction":0.5, "rsi":0.2, "macd":0.1, "bollinger":0.1}
     score = 0
     if signal == "BUY ✅": score += weights["prediction"]
     elif signal == "SELL ❌": score -= weights["prediction"]
-    if rsi_value < 30: score += weights["rsi"]
-    elif rsi_value > 70: score -= weights["rsi"]
+    if rsi < 30: score += weights["rsi"]
+    elif rsi > 70: score -= weights["rsi"]
     score += weights["macd"] if hist['MACD_cross'].iloc[-1]=='bullish' else -weights["macd"]
     if deviation < -0.03: score += weights["bollinger"]
     elif deviation > 0.03: score -= weights["bollinger"]
