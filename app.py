@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import plotly.graph_objs as go
-from utils.data_fetch import fetch_price_data, compute_rsi, compute_zscore
+from utils.data_fetch import fetch_price_data
 
 # ================================
 # 📊 Stock Screener & Advanced Analyzer
@@ -19,34 +19,53 @@ df_summary = []
 # ================================
 # 🔧 Helper Functions
 # ================================
+def compute_rsi(series, window=14):
+    if series.empty or len(series) < window:
+        return None
+    delta = series.diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(window=window).mean()
+    avg_loss = loss.rolling(window=window).mean()
+    rs = avg_gain / avg_loss
+    rsi = 100 - (100 / (1 + rs))
+    return float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else None
+
+def compute_zscore(series, window=20):
+    if series.empty or len(series) < window:
+        return None
+    mean = series.rolling(window).mean().iloc[-1]
+    std = series.rolling(window).std().iloc[-1]
+    if std == 0 or pd.isna(std):
+        return None
+    return float((series.iloc[-1] - mean) / std)
+
 def compute_macd(series, fast=12, slow=26, signal=9):
-    if len(series) < slow:
+    if series.empty or len(series) < slow:
         return None, None
     exp1 = series.ewm(span=fast, adjust=False).mean()
     exp2 = series.ewm(span=slow, adjust=False).mean()
     macd = exp1 - exp2
     signal_line = macd.ewm(span=signal, adjust=False).mean()
-    return macd.iloc[-1], signal_line.iloc[-1]
+    return float(macd.iloc[-1]), float(signal_line.iloc[-1])
 
 def compute_bollinger(series, window=20, num_std=2):
-    if len(series) < window:
+    if series.empty or len(series) < window:
         return None, None, None
-    sma = series.rolling(window).mean()
-    std = series.rolling(window).std()
-    return sma.iloc[-1], (sma.iloc[-1] + num_std * std.iloc[-1]), (sma.iloc[-1] - num_std * std.iloc[-1])
+    sma = series.rolling(window).mean().iloc[-1]
+    std = series.rolling(window).std().iloc[-1]
+    return float(sma), float(sma + num_std * std), float(sma - num_std * std)
 
 def anomaly_score(series):
-    """Detect extreme moves relative to rolling volatility."""
     returns = series.pct_change().dropna()
     if len(returns) < 20:
         return None
     rolling_vol = returns.rolling(20).std().iloc[-1]
-    if rolling_vol == 0:
+    if rolling_vol == 0 or pd.isna(rolling_vol):
         return None
-    return returns.iloc[-1] / rolling_vol
+    return float(returns.iloc[-1] / rolling_vol)
 
 def deja_vu_similarity(series, window=10):
-    """Pattern similarity between last window and history."""
     if len(series) < window * 2:
         return None
     recent = series[-window:].pct_change().dropna().values
@@ -56,10 +75,9 @@ def deja_vu_similarity(series, window=10):
         if len(past) == len(recent):
             corr = np.corrcoef(recent, past)[0, 1]
             best_corr = max(best_corr, corr)
-    return best_corr if best_corr >= 0 else None
+    return float(best_corr) if best_corr >= 0 else None
 
 def trending_reversion_signals(series):
-    """Trend and mean reversion signals."""
     if len(series) < 50:
         return "Insufficient data"
     ma20, ma50 = series.rolling(20).mean().iloc[-1], series.rolling(50).mean().iloc[-1]
@@ -78,7 +96,6 @@ def trending_reversion_signals(series):
         return "Neutral"
 
 def situational_analysis(series, fundamentals, rsi, macd, macd_signal):
-    """Context-driven trade analysis."""
     if len(series) < 50 or rsi is None or macd is None or macd_signal is None:
         return "Not enough data"
 
@@ -105,7 +122,6 @@ def situational_analysis(series, fundamentals, rsi, macd, macd_signal):
         elif zscore > 1 and pe and pe > 30:
             valuation = "Overvalued"
 
-    # Situational synthesis
     if trend == "Bullish" and vol_regime == "Low" and valuation == "Undervalued":
         return "📈 Accumulation / Long Trend Play"
     elif trend == "Bearish" and vol_regime == "High":
@@ -132,7 +148,7 @@ for ticker in [t.strip().upper() for t in tickers]:
             st.warning(f"No closing price data for {ticker}")
             continue
 
-        current_price = close.iloc[-1]
+        current_price = float(close.iloc[-1])
 
         # === Technicals ===
         rsi = compute_rsi(close)
@@ -151,13 +167,13 @@ for ticker in [t.strip().upper() for t in tickers]:
 
         df_summary.append({
             "Ticker": ticker,
-            "Price": round(current_price, 2),
-            "RSI": round(rsi, 2) if rsi is not None else None,
-            "Z-Score": round(zscore, 2) if zscore is not None else None,
-            "MACD": round(macd, 2) if macd is not None else None,
-            "MACD Signal": round(macd_signal, 2) if macd_signal is not None else None,
-            "Anomaly Score": round(anomaly, 2) if anomaly is not None else None,
-            "Déjà Vu Corr": round(deja_corr, 2) if deja_corr is not None else None,
+            "Price": current_price,
+            "RSI": rsi,
+            "Z-Score": zscore,
+            "MACD": macd,
+            "MACD Signal": macd_signal,
+            "Anomaly Score": anomaly,
+            "Déjà Vu Corr": deja_corr,
             "Trend/Reversion": trend_signal,
             "Situational Analysis": situational,
             "P/E": info.get("trailingPE"),
@@ -173,7 +189,8 @@ for ticker in [t.strip().upper() for t in tickers]:
             open=data["Open"], high=data["High"], low=data["Low"], close=data["Close"],
             name="Price"
         ))
-        if len(close) >= 200:
+
+        if len(close) >= 200 and sma20 is not None:
             fig.add_trace(go.Scatter(x=data.index, y=close.rolling(20).mean(), line=dict(color='blue'), name="20MA"))
             fig.add_trace(go.Scatter(x=data.index, y=close.rolling(50).mean(), line=dict(color='orange'), name="50MA"))
             fig.add_trace(go.Scatter(x=data.index, y=close.rolling(200).mean(), line=dict(color='green'), name="200MA"))
