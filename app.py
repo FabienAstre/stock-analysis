@@ -7,6 +7,7 @@ from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator, MACD
 from ta.volatility import BollingerBands
 import plotly.graph_objects as go
+from statsmodels.tsa.arima.model import ARIMA
 
 # --- Page config ---
 st.set_page_config(page_title="📊 Advanced Stock Analysis & Prediction App", layout="wide")
@@ -34,11 +35,9 @@ def get_sentiment_score(ticker):
 # --- Loop through tickers ---
 for ticker in tickers:
     st.header(f"{ticker} Analysis")
-
     try:
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
-
         if hist.empty:
             st.warning("No historical data available.")
             continue
@@ -52,16 +51,13 @@ for ticker in tickers:
         hist['SMA50'] = SMAIndicator(hist['Close'], 50).sma_indicator()
         hist['SMA200'] = SMAIndicator(hist['Close'], 200).sma_indicator()
         hist['SMA20'] = SMAIndicator(hist['Close'], 20).sma_indicator()
-
         bb = BollingerBands(hist['Close'], 20, 2)
         hist['BB_upper'] = bb.bollinger_hband()
         hist['BB_lower'] = bb.bollinger_lband()
-
         macd_indicator = MACD(hist['Close'])
         hist['MACD'] = macd_indicator.macd()
         hist['MACD_signal'] = macd_indicator.macd_signal()
         hist['MACD_cross'] = np.where(hist['MACD'] > hist['MACD_signal'], 'bullish', 'bearish')
-
         rsi = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
 
         # --- Déjà Vue ---
@@ -85,23 +81,18 @@ for ticker in tickers:
             close=hist['Close'],
             name='Candlestick'
         ))
-
         if show_sma:
             fig.add_trace(go.Scatter(x=hist.index, y=hist['SMA50'], line=dict(color='blue'), name='SMA50'))
             fig.add_trace(go.Scatter(x=hist.index, y=hist['SMA200'], line=dict(color='red'), name='SMA200'))
-
         if show_bb:
             fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_upper'], line=dict(color='orange'), name='BB Upper'))
             fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_lower'], line=dict(color='orange'), name='BB Lower'))
-
         if show_macd:
             fig.add_trace(go.Scatter(x=hist.index, y=hist['MACD'], line=dict(color='green'), name='MACD'))
             fig.add_trace(go.Scatter(x=hist.index, y=hist['MACD_signal'], line=dict(color='black'), name='MACD Signal'))
-
         if show_deja and matches:
             for match in matches:
                 fig.add_vline(x=match[1], line_width=1, line_dash="dash", line_color="purple")
-
         fig.update_layout(height=500, xaxis_title="Date", yaxis_title="Price")
         st.plotly_chart(fig, use_container_width=True)
 
@@ -114,36 +105,35 @@ for ticker in tickers:
 
         # --- Advanced Prediction & Anomaly Signals ---
         st.subheader("Advanced Prediction Signals")
+        signal = "HOLD ⏸️"  # initialize to avoid errors
+        predicted_price = None
         lookback = 30
         if len(hist) >= lookback:
-            hist['Day'] = np.arange(len(hist))
-            X = hist['Day'].values[-lookback:].reshape(-1,1)
-            y = hist['Close'].values[-lookback:]
-            model = LinearRegression()
-            model.fit(X,y)
-            next_day = np.array([[X[-1][0]+1]])
-            predicted_price = model.predict(next_day)[0]
-            current_price = hist['Close'].iloc[-1]
+            try:
+                # ARIMA prediction
+                model = ARIMA(hist['Close'][-lookback:], order=(5,1,0))
+                model_fit = model.fit()
+                forecast = model_fit.forecast(steps=1)
+                predicted_price = forecast[0]
+                current_price = hist['Close'].iloc[-1]
+                if predicted_price > current_price*1.002:
+                    signal = "BUY ✅"
+                elif predicted_price < current_price*0.998:
+                    signal = "SELL ❌"
+                else:
+                    signal = "HOLD ⏸️"
+                # Z-score anomaly
+                hist['Returns'] = hist['Close'].pct_change()
+                hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean())/hist['Returns'].std()
+                is_anomaly = abs(hist['ZScore'].iloc[-1])>2
 
-            hist['Returns'] = hist['Close'].pct_change()
-            hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean())/hist['Returns'].std()
-            is_anomaly = abs(hist['ZScore'].iloc[-1])>2
-
-            if predicted_price > current_price*1.002:
-                signal = "BUY ✅"
-            elif predicted_price < current_price*0.998:
-                signal = "SELL ❌"
-            else:
-                signal = "HOLD ⏸️"
-
-            st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
-            st.write(f"Signal: {signal}")
-            if is_anomaly:
-                st.write("Anomaly detected: unusual price movement ⚡")
-            st.markdown("""
-            **Interpretation:**  
-            Combines short-term regression prediction and anomaly detection to provide high-confidence signals.
-            """)
+                st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
+                st.write(f"Signal: {signal}")
+                if is_anomaly:
+                    st.write("Anomaly detected: unusual price movement ⚡")
+                st.markdown("**Interpretation:** Combines short-term ARIMA prediction and anomaly detection for high-confidence signals.")
+            except Exception as e:
+                st.warning(f"Prediction could not be computed: {e}")
         else:
             st.warning("Not enough data for prediction (requires at least 30 days).")
 
@@ -159,8 +149,8 @@ for ticker in tickers:
         # --- Trending & Mean-Reversion Signals ---
         st.subheader("📊 Trending & Mean-Reversion Signals")
         trend = "Uptrend" if hist['SMA50'].iloc[-1] > hist['SMA200'].iloc[-1] else "Downtrend"
-        st.write(f"Latest Trend Signal: {trend}")
         deviation = (hist['Close'].iloc[-1]-hist['SMA50'].iloc[-1])/hist['SMA50'].iloc[-1]
+        st.write(f"Latest Trend Signal: {trend}")
         st.markdown("**Interpretation:** Trend shows market direction. Deviation indicates potential pullback or rebound.")
 
         # --- PTB ---
@@ -176,7 +166,7 @@ for ticker in tickers:
         st.subheader("🧐 Situational Analysis & Sentiment Score")
         sentiment_score = get_sentiment_score(ticker)
         st.write(f"Sentiment Score (simulated): {sentiment_score} (-1=negative, +1=positive)")
-        st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for comprehensive situational insights.")
+        st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for situational insights.")
 
         # --- Key Reasons & Overall Recommendation ---
         reasons = []
@@ -196,6 +186,8 @@ for ticker in tickers:
             elif sentiment_score < -0.3: reasons.append("Negative sentiment")
         if deviation < -0.03: reasons.append("Price below SMA50 → potential bounce")
         elif deviation > 0.03: reasons.append("Price above SMA50 → potential pullback")
+        if predicted_price:
+            reasons.append(f"Prediction signal: {signal}")
 
         st.subheader("📌 Key Reasons")
         for r in reasons:
@@ -214,30 +206,4 @@ for ticker in tickers:
 
         st.subheader("📌 Overall Recommendation")
         st.markdown(f"**{overall}**")
-        st.markdown("Based on combined indicators: trend, SMA, MACD, Bollinger, RSI, predicted price, Déjà Vue, PTB, sentiment, deviation.")
-
-    except Exception as e:
-        st.error(f"Error processing {ticker}: {e}")
-
-from statsmodels.tsa.arima.model import ARIMA
-
-# --- ARIMA Prediction ---
-lookback = 60  # use 60 days for ARIMA
-if len(hist) >= lookback:
-    model = ARIMA(hist['Close'][-lookback:], order=(5,1,0))  # ARIMA(p,d,q)
-    model_fit = model.fit()
-    forecast = model_fit.forecast(steps=1)
-    predicted_price = forecast[0]
-    current_price = hist['Close'].iloc[-1]
-
-    # Signal
-    if predicted_price > current_price*1.002:
-        signal = "BUY ✅"
-    elif predicted_price < current_price*0.998:
-        signal = "SELL ❌"
-    else:
-        signal = "HOLD ⏸️"
-
-    st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
-    st.write(f"Signal: {signal}")
-
+        st.markdown("
