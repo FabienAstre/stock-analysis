@@ -110,7 +110,7 @@ is_anomaly = False
 try:
     close_series = hist['Close'][-lookback:].dropna()
     if len(close_series) >= lookback:
-        # Try ARIMA first
+        # Try ARIMA
         try:
             model = ARIMA(close_series, order=(5,1,0))
             model_fit = model.fit()
@@ -123,125 +123,116 @@ try:
                 signal = "SELL ❌"
             st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
             st.write(f"Signal: {signal}")
-        except Exception as arima_error:
-            # Fallback: Linear Regression
-            try:
-                from sklearn.linear_model import LinearRegression
-                X = np.arange(len(close_series)).reshape(-1,1)
-                y = close_series.values
-                lr_model = LinearRegression()
-                lr_model.fit(X, y)
-                predicted_price = lr_model.predict(np.array([[len(close_series)]]))[0]
-                current_price = hist['Close'].iloc[-1]
-                if predicted_price > current_price*1.002:
-                    signal = "BUY ✅"
-                elif predicted_price < current_price*0.998:
-                    signal = "SELL ❌"
-                st.write(f"Predicted next-day close (Linear Regression fallback): **${predicted_price:.2f}**")
-                st.write(f"Signal: {signal}")
-            except Exception as lr_error:
-                st.warning(f"Prediction could not be computed: {lr_error}")
-
-        # Z-score anomaly detection (safe, outside model try/except)
-        hist['Returns'] = hist['Close'].pct_change()
-        hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean())/hist['Returns'].std()
-        is_anomaly = abs(hist['ZScore'].iloc[-1])>2
-        if is_anomaly:
-            st.write("Anomaly detected: unusual price movement ⚡")
-
-        st.markdown("**Interpretation:** Combines short-term prediction and anomaly detection for high-confidence signals.")
-
-    else:
-        st.warning("Not enough valid data for prediction (requires at least 30 non-NaN closing prices).")
-
+        except Exception:
+            # Linear Regression fallback
+            from sklearn.linear_model import LinearRegression
+            X = np.arange(len(close_series)).reshape(-1,1)
+            y = close_series.values
+            lr_model = LinearRegression()
+            lr_model.fit(X, y)
+            predicted_price = lr_model.predict(np.array([[len(close_series)]]))[0]
+            current_price = hist['Close'].iloc[-1]
+            if predicted_price > current_price*1.002:
+                signal = "BUY ✅"
+            elif predicted_price < current_price*0.998:
+                signal = "SELL ❌"
+            st.write(f"Predicted next-day close (Linear Regression fallback): **${predicted_price:.2f}**")
+            st.write(f"Signal: {signal}")
 except Exception as e:
     st.warning(f"Prediction module encountered an error but other modules will continue: {e}")
 
+# --- Z-score anomaly detection ---
+hist['Returns'] = hist['Close'].pct_change()
+hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean())/hist['Returns'].std()
+is_anomaly = abs(hist['ZScore'].iloc[-1])>2
+if is_anomaly:
+    st.write("Anomaly detected: unusual price movement ⚡")
 
-    # --- Déjà Vue Signals ---
-    st.subheader("🔁 Déjà Vue Trading Signals")
-    if matches:
-        matches_df = pd.DataFrame(matches, columns=['Index','Date','Similarity'])
-        st.dataframe(matches_df)
-    else:
-        st.write("No similar historical patterns found.")
-    st.markdown("**Interpretation:** Detects repeating historical patterns.")
+st.markdown("**Interpretation:** Combines short-term prediction and anomaly detection for high-confidence signals.")
 
-    # --- Trending & Mean-Reversion ---
-    st.subheader("📊 Trending & Mean-Reversion Signals")
-    trend = "Uptrend" if hist['SMA50'].iloc[-1] > hist['SMA200'].iloc[-1] else "Downtrend"
-    deviation = (hist['Close'].iloc[-1]-hist['SMA50'].iloc[-1])/hist['SMA50'].iloc[-1]
-    st.write(f"Latest Trend Signal: {trend}")
-    st.markdown("**Interpretation:** Trend shows market direction. Deviation indicates potential pullback or rebound.")
+# --- Déjà Vue Signals ---
+st.subheader("🔁 Déjà Vue Trading Signals")
+if matches:
+    matches_df = pd.DataFrame(matches, columns=['Index','Date','Similarity'])
+    st.dataframe(matches_df)
+else:
+    st.write("No similar historical patterns found.")
+st.markdown("**Interpretation:** Detects repeating historical patterns.")
 
-    # --- PTB ---
-    st.subheader("💰 Price to Tangible Book (PTB)")
-    try:
-        ptb = stock.info.get('priceToBook', None)
-    except:
-        ptb = None
-    st.write(f"Price to Tangible Book: {ptb if ptb else 'N/A'}")
-    st.markdown("**Interpretation:** PTB < 1 may indicate undervalued relative to tangible assets.")
+# --- Trending & Mean-Reversion ---
+st.subheader("📊 Trending & Mean-Reversion Signals")
+trend = "Uptrend" if hist['SMA50'].iloc[-1] > hist['SMA200'].iloc[-1] else "Downtrend"
+deviation = (hist['Close'].iloc[-1]-hist['SMA50'].iloc[-1])/hist['SMA50'].iloc[-1]
+st.write(f"Latest Trend Signal: {trend}")
+st.markdown("**Interpretation:** Trend shows market direction. Deviation indicates potential pullback or rebound.")
 
-    # --- Sentiment ---
-    st.subheader("🧐 Situational Analysis & Sentiment Score")
-    sentiment_score = get_sentiment_score(ticker)
-    st.write(f"Sentiment Score (simulated): {sentiment_score} (-1=negative, +1=positive)")
-    st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for situational insights.")
+# --- PTB ---
+st.subheader("💰 Price to Tangible Book (PTB)")
+try:
+    ptb = stock.info.get('priceToBook', None)
+except:
+    ptb = None
+st.write(f"Price to Tangible Book: {ptb if ptb else 'N/A'}")
+st.markdown("**Interpretation:** PTB < 1 may indicate undervalued relative to tangible assets.")
 
-    # --- Key Reasons & Overall Recommendation ---
-    reasons = []
-    reasons.append(f"Trend: {trend}")
-    if rsi < 30: reasons.append("RSI oversold → potential buy")
-    elif rsi > 70: reasons.append("RSI overbought → potential sell")
-    if hist['MACD_cross'].iloc[-1] == 'bullish': reasons.append("MACD bullish crossover")
-    else: reasons.append("MACD bearish crossover")
-   
-    if hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]:
-        reasons.append("Price below lower Bollinger → potential buy")
-    elif hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]:
-        reasons.append("Price above upper Bollinger → potential sell")
-    if matches:
-        reasons.append("Déjà Vue pattern found")
-    if ptb:
-        if ptb < 1:
-            reasons.append("PTB < 1 → undervalued")
-        elif ptb > 2:
-            reasons.append("PTB > 2 → overvalued")
-    if sentiment_score:
-        if sentiment_score > 0.3:
-            reasons.append("Positive sentiment")
-        elif sentiment_score < -0.3:
-            reasons.append("Negative sentiment")
-    if deviation < -0.03:
-        reasons.append("Price below SMA50 → potential bounce")
-    elif deviation > 0.03:
-        reasons.append("Price above SMA50 → potential pullback")
-    if predicted_price:
-        reasons.append(f"Prediction signal: {signal}")
+# --- Sentiment ---
+st.subheader("🧐 Situational Analysis & Sentiment Score")
+sentiment_score = get_sentiment_score(ticker)
+st.write(f"Sentiment Score (simulated): {sentiment_score} (-1=negative, +1=positive)")
+st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for situational insights.")
 
-    st.subheader("📌 Key Reasons")
-    for r in reasons:
-        st.write("- " + r)
+# --- Key Reasons & Overall Recommendation ---
+reasons = []
+reasons.append(f"Trend: {trend}")
+if rsi < 30: reasons.append("RSI oversold → potential buy")
+elif rsi > 70: reasons.append("RSI overbought → potential sell")
+if hist['MACD_cross'].iloc[-1] == 'bullish': reasons.append("MACD bullish crossover")
+else: reasons.append("MACD bearish crossover")
+if hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]:
+    reasons.append("Price below lower Bollinger → potential buy")
+elif hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]:
+    reasons.append("Price above upper Bollinger → potential sell")
+if matches:
+    reasons.append("Déjà Vue pattern found")
+if ptb:
+    if ptb < 1:
+        reasons.append("PTB < 1 → undervalued")
+    elif ptb > 2:
+        reasons.append("PTB > 2 → overvalued")
+if sentiment_score:
+    if sentiment_score > 0.3:
+        reasons.append("Positive sentiment")
+    elif sentiment_score < -0.3:
+        reasons.append("Negative sentiment")
+if deviation < -0.03:
+    reasons.append("Price below SMA50 → potential bounce")
+elif deviation > 0.03:
+    reasons.append("Price above SMA50 → potential pullback")
+if predicted_price:
+    reasons.append(f"Prediction signal: {signal}")
 
-    # --- Overall Recommendation ---
-    score = 0
-    if signal == "BUY ✅":
-        score += 1
-    elif signal == "SELL ❌":
-        score -= 1
-    if deviation < -0.03 or rsi < 30 or (hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]):
-        score += 1
-    if deviation > 0.03 or rsi > 70 or (hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]):
-        score -= 1
+st.subheader("📌 Key Reasons")
+for r in reasons:
+    st.write("- " + r)
 
-    if score > 0:
-        overall = "BUY ✅"
-    elif score < 0:
-        overall = "SELL ❌"
-    else:
-        overall = "HOLD ⏸️"
+score = 0
+if signal == "BUY ✅":
+    score += 1
+elif signal == "SELL ❌":
+    score -= 1
+if deviation < -0.03 or rsi < 30 or (hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]):
+    score += 1
+if deviation > 0.03 or rsi > 70 or (hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]):
+    score -= 1
 
-    st.subheader("📌 Overall Recommendation")
-    st.markdown(f"**{overall}**")
-    st.markdown("This concludes the analysis for this stock.")
+if score > 0:
+    overall = "BUY ✅"
+elif score < 0:
+    overall = "SELL ❌"
+else:
+    overall = "HOLD ⏸️"
+
+st.subheader("📌 Overall Recommendation")
+st.markdown(f"**{overall}**")
+st.markdown("This concludes the analysis for this stock.")
+
