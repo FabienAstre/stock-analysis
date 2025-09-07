@@ -90,6 +90,33 @@ for ticker in tickers:
         if similarity > 0.95:
             matches.append((i, hist.index[i], similarity))
 
+     # --- Candlestick Chart + Selected Indicators ---
+    st.subheader("Candlestick Chart + Indicators")
+    fig = go.Figure()
+    fig.add_trace(go.Candlestick(
+        x=hist.index,
+        open=hist['Open'],
+        high=hist['High'],
+        low=hist['Low'],
+        close=hist['Close'],
+        name='Candlestick'
+    ))
+    if show_sma:
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['SMA50'], line=dict(color='blue'), name='SMA50'))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['SMA200'], line=dict(color='red'), name='SMA200'))
+    if show_bb:
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_upper'], line=dict(color='orange'), name='BB Upper'))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_lower'], line=dict(color='orange'), name='BB Lower'))
+    if show_macd:
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['MACD'], line=dict(color='green'), name='MACD'))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['MACD_signal'], line=dict(color='black'), name='MACD Signal'))
+    if show_deja and matches:
+        for match in matches:
+            fig.add_vline(x=match[1], line_width=1, line_dash="dash", line_color="purple")
+    fig.update_layout(height=500, xaxis_title="Date", yaxis_title="Price")
+    st.plotly_chart(fig, use_container_width=True)
+
+
     # --- Advanced Prediction & Anomaly Signals ---
     st.subheader("Advanced Prediction Signals")
     signal = "HOLD ⏸️"
