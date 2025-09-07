@@ -110,45 +110,64 @@ is_anomaly = False
 try:
     close_series = hist['Close'][-lookback:].dropna()
     if len(close_series) >= lookback:
-        # Try ARIMA
+        current_price = hist['Close'].iloc[-1]
+
+        # --- Try ARIMA ---
+        arima_pred = None
         try:
             model = ARIMA(close_series, order=(5,1,0))
             model_fit = model.fit()
             forecast = model_fit.forecast(steps=1)
-            predicted_price = forecast[0]
-            current_price = hist['Close'].iloc[-1]
-            if predicted_price > current_price*1.002:
-                signal = "BUY ✅"
-            elif predicted_price < current_price*0.998:
-                signal = "SELL ❌"
-            st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
-            st.write(f"Signal: {signal}")
-        except Exception:
-            # Linear Regression fallback
+            arima_pred = forecast[0]
+        except:
+            pass  # ARIMA failed
+
+        # --- Linear Regression Fallback ---
+        lr_pred = None
+        try:
             from sklearn.linear_model import LinearRegression
             X = np.arange(len(close_series)).reshape(-1,1)
             y = close_series.values
             lr_model = LinearRegression()
             lr_model.fit(X, y)
-            predicted_price = lr_model.predict(np.array([[len(close_series)]]))[0]
-            current_price = hist['Close'].iloc[-1]
-            if predicted_price > current_price*1.002:
-                signal = "BUY ✅"
-            elif predicted_price < current_price*0.998:
-                signal = "SELL ❌"
-            st.write(f"Predicted next-day close (Linear Regression fallback): **${predicted_price:.2f}**")
-            st.write(f"Signal: {signal}")
+            lr_pred = lr_model.predict(np.array([[len(close_series)]]))[0]
+        except:
+            pass  # LR failed
+
+        # --- SMA Adjustment (Momentum) ---
+        sma5 = hist['Close'][-5:].mean()
+        sma10 = hist['Close'][-10:].mean()
+        sma_adjustment = (sma5 + sma10) / 2
+
+        # --- Combine Predictions ---
+        preds = [p for p in [arima_pred, lr_pred, sma_adjustment] if p is not None]
+        if preds:
+            predicted_price = np.mean(preds)
+
+        # --- Generate Signal ---
+        if predicted_price > current_price * 1.002:
+            signal = "BUY ✅"
+        elif predicted_price < current_price * 0.998:
+            signal = "SELL ❌"
+
+        st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
+        st.write(f"Signal: {signal}")
+
+        # --- Z-score anomaly ---
+        hist['Returns'] = hist['Close'].pct_change()
+        hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
+        is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
+        if is_anomaly:
+            st.write("Anomaly detected: unusual price movement ⚡")
+
+        st.markdown("**Interpretation:** Combines ARIMA, Linear Regression, SMA trends, and anomaly detection for robust prediction.")
+
+    else:
+        st.warning("Not enough valid data for prediction (requires at least 30 non-NaN closing prices).")
+
 except Exception as e:
     st.warning(f"Prediction module encountered an error but other modules will continue: {e}")
 
-# --- Z-score anomaly detection ---
-hist['Returns'] = hist['Close'].pct_change()
-hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean())/hist['Returns'].std()
-is_anomaly = abs(hist['ZScore'].iloc[-1])>2
-if is_anomaly:
-    st.write("Anomaly detected: unusual price movement ⚡")
-
-st.markdown("**Interpretation:** Combines short-term prediction and anomaly detection for high-confidence signals.")
 
 # --- Déjà Vue Signals ---
 st.subheader("🔁 Déjà Vue Trading Signals")
