@@ -169,40 +169,7 @@ for ticker in tickers:
     else:
         st.warning("Not enough data for prediction (requires at least 60 non-NaN closing prices).")
 
-        # --- Short-Term Trend Prediction ---
-    st.subheader("⏱️ Short-Term Trend Prediction (Next 1-2 Days)")
-    try:
-        short_window = 10
-        short_close = hist['Close'][-short_window:]
-        short_dates = np.arange(len(short_close)).reshape(-1,1)
-
-        # Linear regression slope
-        lr_model_short = LinearRegression()
-        lr_model_short.fit(short_dates, short_close.values)
-        slope = lr_model_short.coef_[0]
-
-        # Short-term EMA cross
-        ema5 = EMAIndicator(short_close, 5).ema_indicator().iloc[-1]
-        ema10 = EMAIndicator(short_close, 10).ema_indicator().iloc[-1]
-
-        # Volume trend
-        vol_trend = hist['Volume'][-short_window:].pct_change().mean()
-
-        # Short-term signal
-        short_signal = "HOLD ⏸️"
-        if slope > 0 and ema5 > ema10 and vol_trend > 0:
-            short_signal = "UP 📈"
-        elif slope < 0 and ema5 < ema10 and vol_trend < 0:
-            short_signal = "DOWN 📉"
-
-        st.write(f"Linear Regression slope: {slope:.4f}")
-        st.write(f"EMA5: {ema5:.2f} | EMA10: {ema10:.2f} | Volume trend: {vol_trend:.4f}")
-        st.markdown(f"**Short-Term Trend Signal: {short_signal}**")
-        st.markdown("**Explanation:** Combines last 10-day price slope, EMA5/EMA10 crossover, and recent volume trend to estimate next 1–2 day movement.")
-    except Exception as e:
-        st.warning(f"Short-term trend module encountered an error: {e}")
-
-
+      
     # --- Déjà Vue Signals ---
     st.subheader("🔁 Déjà Vue Trading Signals")
     if matches:
@@ -223,21 +190,86 @@ for ticker in tickers:
         st.write("No similar historical patterns found.")
     st.markdown("**Explanation:** Shows repeating patterns, similarity, and subsequent trend direction.")
 
-    # --- Trending & Mean-Reversion Signals ---
-    st.subheader("📊 Trending & Mean-Reversion Signals")
-    trend_signal = "Uptrend" if hist['SMA50'].iloc[-1] > hist['SMA200'].iloc[-1] else "Downtrend"
-    deviation = (hist['Close'].iloc[-1]-hist['SMA50'].iloc[-1])/hist['SMA50'].iloc[-1]
-    volume_trend = hist['Volume'].pct_change().rolling(5).mean().iloc[-1]
+ # --- Trending & Mean-Reversion Signals ---
+st.subheader("📊 Trending & Mean-Reversion Signals")
 
-    st.write(f"Latest Trend Signal: {trend_signal}")
-    st.write(f"RSI: {rsi_value:.2f} | ADX: {hist['ADX'].iloc[-1]:.2f} | Volume Trend: {volume_trend:.0f}")
-    st.markdown(
-        "📌 **Explanation:**\n"
-        "- **SMA50 & SMA200:** Determine long-term trend.\n"
-        "- **RSI:** Indicates overbought (>70) or oversold (<30).\n"
-        "- **ADX:** Measures trend strength; >25 indicates strong trend.\n"
-        "- **Volume Trend:** Confirms trend participation."
-    )
+# --- Calculate indicators ---
+hist['EMA10'] = EMAIndicator(hist['Close'], 10).ema_indicator()
+hist['ADX'] = ADXIndicator(hist['High'], hist['Low'], hist['Close'], 14).adx()
+hist['Volume_SMA20'] = hist['Volume'].rolling(20).mean()
+
+# --- Determine trend ---
+trend_signal = "Uptrend" if hist['EMA10'].iloc[-1] > hist['SMA50'].iloc[-1] else "Downtrend"
+
+# --- RSI ---
+rsi = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
+
+# --- ADX ---
+adx = hist['ADX'].iloc[-1]
+
+# --- Volume trend ---
+volume_trend = hist['Volume_SMA20'].iloc[-1]
+
+# --- Display values ---
+st.write(f"Latest Trend Signal: {trend_signal}")
+st.write(f"RSI: {rsi:.2f} | ADX: {adx:.2f} | Volume Trend (SMA20): {volume_trend:.0f}")
+
+# --- Explanation ---
+st.markdown("""
+**Explanation:**  
+- **EMA10 vs SMA50:** Short-term EMA above SMA50 indicates short-term bullish momentum; below indicates bearish.  
+- **RSI:** Measures overbought (>70) or oversold (<30) conditions.  
+- **ADX:** Measures trend strength; >25 indicates strong trend, <20 weak trend.  
+- **Volume Trend (SMA20):** Rising volume confirms market participation supporting the trend.
+""")
+
+# --- Plot improved chart ---
+import plotly.graph_objects as go
+
+fig_trend = go.Figure()
+
+# Price candlestick
+fig_trend.add_trace(go.Candlestick(
+    x=hist.index,
+    open=hist['Open'],
+    high=hist['High'],
+    low=hist['Low'],
+    close=hist['Close'],
+    name='Candlestick'
+))
+
+# SMA50, SMA200
+fig_trend.add_trace(go.Scatter(x=hist.index, y=hist['SMA50'], line=dict(color='blue', width=1), name='SMA50'))
+fig_trend.add_trace(go.Scatter(x=hist.index, y=hist['SMA200'], line=dict(color='red', width=1), name='SMA200'))
+
+# EMA10
+fig_trend.add_trace(go.Scatter(x=hist.index, y=hist['EMA10'], line=dict(color='green', width=1, dash='dot'), name='EMA10'))
+
+# Volume as bar chart
+fig_trend.add_trace(go.Bar(
+    x=hist.index,
+    y=hist['Volume'],
+    marker_color='lightgrey',
+    name='Volume',
+    yaxis='y2'
+))
+
+# Layout with secondary y-axis for volume
+fig_trend.update_layout(
+    height=500,
+    xaxis_title='Date',
+    yaxis_title='Price',
+    yaxis2=dict(
+        overlaying='y',
+        side='right',
+        title='Volume',
+        showgrid=False
+    ),
+    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+)
+
+st.plotly_chart(fig_trend, use_container_width=True)
+
 
     # --- Price to Tangible Book ---
     st.subheader("💰 Price to Tangible Book (PTB)")
