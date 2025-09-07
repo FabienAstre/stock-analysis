@@ -7,3 +7,4 @@ plotly
 ta
 requests
 beautifulsoup4
+scikit-learn
