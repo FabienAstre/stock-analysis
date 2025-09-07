@@ -99,16 +99,17 @@ for ticker in tickers:
     fig.update_layout(height=500, xaxis_title="Date", yaxis_title="Price")
     st.plotly_chart(fig, use_container_width=True)
 
-  # --- Advanced Prediction & Anomaly Signals ---
+# --- Advanced Prediction & Anomaly Signals ---
 st.subheader("Advanced Prediction Signals")
 signal = "HOLD ⏸️"
 predicted_price = None
 lookback = 30
 
 close_series = hist['Close'][-lookback:].dropna()
+
 if len(close_series) >= lookback:
     try:
-        # Try ARIMA prediction
+        # --- ARIMA Prediction ---
         model = ARIMA(close_series, order=(5,1,0))
         model_fit = model.fit()
         forecast = model_fit.forecast(steps=1)
@@ -120,7 +121,7 @@ if len(close_series) >= lookback:
         elif predicted_price < current_price * 0.998:
             signal = "SELL ❌"
 
-        # Z-score anomaly
+        # --- Z-score Anomaly Detection ---
         hist['Returns'] = hist['Close'].pct_change()
         hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
         is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
@@ -129,14 +130,12 @@ if len(close_series) >= lookback:
         st.write(f"Signal: {signal}")
         if is_anomaly:
             st.write("Anomaly detected: unusual price movement ⚡")
-        st.markdown(
-            "**Interpretation:** Combines ARIMA prediction and anomaly detection for high-confidence signals."
-        )
+        st.markdown("**Interpretation:** Combines ARIMA prediction and anomaly detection for high-confidence signals.")
 
     except Exception as e:
-        # Fallback: Linear Regression
+        # --- Fallback Linear Regression ---
         try:
-            X = np.arange(len(close_series)).reshape(-1,1)
+            X = np.arange(len(close_series)).reshape(-1, 1)
             y = close_series.values
             lr_model = LinearRegression()
             lr_model.fit(X, y)
@@ -150,14 +149,14 @@ if len(close_series) >= lookback:
 
             st.write(f"Predicted next-day close (Linear Regression fallback): **${predicted_price:.2f}**")
             st.write(f"Signal: {signal}")
-            st.markdown(
-                "**Interpretation:** ARIMA failed; fallback linear regression used for prediction."
-            )
+            st.markdown("**Interpretation:** ARIMA failed; fallback linear regression used for prediction.")
+
         except Exception as e2:
             st.warning(f"Prediction could not be computed: {e2}")
 
 else:
     st.warning("Not enough valid data for prediction (requires at least 30 non-NaN closing prices).")
+
 
     # --- Déjà Vue Signals ---
     st.subheader("🔁 Déjà Vue Trading Signals")
