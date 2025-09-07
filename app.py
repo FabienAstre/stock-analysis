@@ -218,3 +218,26 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Error processing {ticker}: {e}")
+
+from statsmodels.tsa.arima.model import ARIMA
+
+# --- ARIMA Prediction ---
+lookback = 60  # use 60 days for ARIMA
+if len(hist) >= lookback:
+    model = ARIMA(hist['Close'][-lookback:], order=(5,1,0))  # ARIMA(p,d,q)
+    model_fit = model.fit()
+    forecast = model_fit.forecast(steps=1)
+    predicted_price = forecast[0]
+    current_price = hist['Close'].iloc[-1]
+
+    # Signal
+    if predicted_price > current_price*1.002:
+        signal = "BUY ✅"
+    elif predicted_price < current_price*0.998:
+        signal = "SELL ❌"
+    else:
+        signal = "HOLD ⏸️"
+
+    st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
+    st.write(f"Signal: {signal}")
+
