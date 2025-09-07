@@ -20,6 +20,8 @@ df_summary = []
 # 🔧 Helper Functions
 # ================================
 def compute_macd(series, fast=12, slow=26, signal=9):
+    if len(series) < slow:
+        return None, None
     exp1 = series.ewm(span=fast, adjust=False).mean()
     exp2 = series.ewm(span=slow, adjust=False).mean()
     macd = exp1 - exp2
@@ -27,6 +29,8 @@ def compute_macd(series, fast=12, slow=26, signal=9):
     return macd.iloc[-1], signal_line.iloc[-1]
 
 def compute_bollinger(series, window=20, num_std=2):
+    if len(series) < window:
+        return None, None, None
     sma = series.rolling(window).mean()
     std = series.rolling(window).std()
     return sma.iloc[-1], (sma.iloc[-1] + num_std * std.iloc[-1]), (sma.iloc[-1] - num_std * std.iloc[-1])
@@ -52,7 +56,7 @@ def deja_vu_similarity(series, window=10):
         if len(past) == len(recent):
             corr = np.corrcoef(recent, past)[0, 1]
             best_corr = max(best_corr, corr)
-    return best_corr
+    return best_corr if best_corr >= 0 else None
 
 def trending_reversion_signals(series):
     """Trend and mean reversion signals."""
@@ -60,6 +64,8 @@ def trending_reversion_signals(series):
         return "Insufficient data"
     ma20, ma50 = series.rolling(20).mean().iloc[-1], series.rolling(50).mean().iloc[-1]
     rsi = compute_rsi(series)
+    if rsi is None:
+        return "Insufficient data"
     if ma20 > ma50 and rsi < 70:
         return "Trending Up"
     elif ma20 < ma50 and rsi > 30:
@@ -73,7 +79,7 @@ def trending_reversion_signals(series):
 
 def situational_analysis(series, fundamentals, rsi, macd, macd_signal):
     """Context-driven trade analysis."""
-    if len(series) < 50:
+    if len(series) < 50 or rsi is None or macd is None or macd_signal is None:
         return "Not enough data"
 
     ma20, ma50 = series.rolling(20).mean().iloc[-1], series.rolling(50).mean().iloc[-1]
@@ -93,10 +99,11 @@ def situational_analysis(series, fundamentals, rsi, macd, macd_signal):
     zscore = compute_zscore(series)
     pe = fundamentals.get("trailingPE", None)
     valuation = "Fair"
-    if zscore < -1 and pe and pe < 20:
-        valuation = "Undervalued"
-    elif zscore > 1 and pe and pe > 30:
-        valuation = "Overvalued"
+    if zscore is not None:
+        if zscore < -1 and pe and pe < 20:
+            valuation = "Undervalued"
+        elif zscore > 1 and pe and pe > 30:
+            valuation = "Overvalued"
 
     # Situational synthesis
     if trend == "Bullish" and vol_regime == "Low" and valuation == "Undervalued":
@@ -117,9 +124,14 @@ for ticker in [t.strip().upper() for t in tickers]:
     try:
         data = fetch_price_data(ticker, period)
         if data.empty:
+            st.warning(f"No data found for {ticker}")
             continue
 
         close = data["Close"].dropna()
+        if close.empty:
+            st.warning(f"No closing price data for {ticker}")
+            continue
+
         current_price = close.iloc[-1]
 
         # === Technicals ===
@@ -140,12 +152,12 @@ for ticker in [t.strip().upper() for t in tickers]:
         df_summary.append({
             "Ticker": ticker,
             "Price": round(current_price, 2),
-            "RSI": round(rsi, 2) if rsi else None,
-            "Z-Score": round(zscore, 2) if zscore else None,
-            "MACD": round(macd, 2),
-            "MACD Signal": round(macd_signal, 2),
-            "Anomaly Score": round(anomaly, 2) if anomaly else None,
-            "Déjà Vu Corr": round(deja_corr, 2) if deja_corr else None,
+            "RSI": round(rsi, 2) if rsi is not None else None,
+            "Z-Score": round(zscore, 2) if zscore is not None else None,
+            "MACD": round(macd, 2) if macd is not None else None,
+            "MACD Signal": round(macd_signal, 2) if macd_signal is not None else None,
+            "Anomaly Score": round(anomaly, 2) if anomaly is not None else None,
+            "Déjà Vu Corr": round(deja_corr, 2) if deja_corr is not None else None,
             "Trend/Reversion": trend_signal,
             "Situational Analysis": situational,
             "P/E": info.get("trailingPE"),
@@ -161,11 +173,13 @@ for ticker in [t.strip().upper() for t in tickers]:
             open=data["Open"], high=data["High"], low=data["Low"], close=data["Close"],
             name="Price"
         ))
-        fig.add_trace(go.Scatter(x=data.index, y=close.rolling(20).mean(), line=dict(color='blue'), name="20MA"))
-        fig.add_trace(go.Scatter(x=data.index, y=close.rolling(50).mean(), line=dict(color='orange'), name="50MA"))
-        fig.add_trace(go.Scatter(x=data.index, y=close.rolling(200).mean(), line=dict(color='green'), name="200MA"))
-        fig.add_trace(go.Scatter(x=data.index, y=[upper_bb]*len(data), line=dict(color='red', dash='dot'), name="Upper BB"))
-        fig.add_trace(go.Scatter(x=data.index, y=[lower_bb]*len(data), line=dict(color='red', dash='dot'), name="Lower BB"))
+        if len(close) >= 200:
+            fig.add_trace(go.Scatter(x=data.index, y=close.rolling(20).mean(), line=dict(color='blue'), name="20MA"))
+            fig.add_trace(go.Scatter(x=data.index, y=close.rolling(50).mean(), line=dict(color='orange'), name="50MA"))
+            fig.add_trace(go.Scatter(x=data.index, y=close.rolling(200).mean(), line=dict(color='green'), name="200MA"))
+            if upper_bb is not None and lower_bb is not None:
+                fig.add_trace(go.Scatter(x=data.index, y=[upper_bb]*len(data), line=dict(color='red', dash='dot'), name="Upper BB"))
+                fig.add_trace(go.Scatter(x=data.index, y=[lower_bb]*len(data), line=dict(color='red', dash='dot'), name="Lower BB"))
 
         fig.update_layout(title=f"{ticker} Technical Chart", xaxis_rangeslider_visible=False)
         st.plotly_chart(fig, use_container_width=True)
