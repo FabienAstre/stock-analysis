@@ -190,30 +190,48 @@ except Exception as e:
 st.subheader("🔁 Déjà Vue Trading Signals")
 
 if matches:
-    matches_df = pd.DataFrame(matches, columns=['Index','Date','Similarity'])
-    matches_df['Date'] = pd.to_datetime(matches_df['Date']).dt.date
-    matches_df = matches_df.sort_values(by="Similarity", ascending=False)
+    deja_results = []
+    for i, date, similarity in matches:
+        # Extract the matched pattern (5 days)
+        pattern_prices = hist['Close'].iloc[i:i+pattern_length]
 
-    # Show top 3 similar patterns
-    top_matches = matches_df.head(3)
+        # Calculate short trend after the pattern (next 5 days if available)
+        if i + pattern_length + 5 < len(hist):
+            future_prices = hist['Close'].iloc[i+pattern_length:i+pattern_length+5]
+            trend_return = (future_prices.iloc[-1] - future_prices.iloc[0]) / future_prices.iloc[0]
+            if trend_return > 0.02:
+                trend = "Uptrend 📈"
+            elif trend_return < -0.02:
+                trend = "Downtrend 📉"
+            else:
+                trend = "Flat ➖"
+        else:
+            trend = "N/A"
 
-    st.write("**Top Similar Historical Patterns**")
-    st.table(top_matches.style.format({"Similarity": "{:.2%}"}))
+        # Save results
+        deja_results.append({
+            "Date": date.date(),
+            "Similarity": f"{similarity:.2%}",
+            "Trend After Pattern": trend,
+            "Pattern": pattern_prices.values  # For sparkline
+        })
 
-    # Visualization: similarity bar chart
-    st.bar_chart(top_matches.set_index("Date")["Similarity"])
+    # Convert to DataFrame for display
+    deja_df = pd.DataFrame(deja_results)
 
-    # Best match interpretation
-    best = top_matches.iloc[0]
-    st.markdown(
-        f"📌 The current price pattern most closely resembles **{best['Date']}** "
-        f"with a similarity of **{best['Similarity']:.2%}**. "
-    )
-
+    # Display table with sparklines
+    for _, row in deja_df.iterrows():
+        col1, col2, col3, col4 = st.columns([2,2,2,4])
+        col1.write(row["Date"])
+        col2.write(row["Similarity"])
+        col3.write(row["Trend After Pattern"])
+        with col4:
+            st.line_chart(row["Pattern"])
 else:
     st.write("No similar historical patterns found.")
 
-st.markdown("**Interpretation:** Identifies repeating price patterns from history to spot potential déjà vu market moves.")
+st.markdown("**Interpretation:** Shows past repeating patterns, their similarity, and what happened next (trend).")
+
 
 
 # --- Trending & Mean-Reversion ---
