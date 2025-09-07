@@ -192,9 +192,6 @@ st.subheader("🔁 Déjà Vue Trading Signals")
 if matches:
     deja_results = []
     for i, date, similarity in matches:
-        # Extract the matched pattern (5 days)
-        pattern_prices = hist['Close'].iloc[i:i+pattern_length]
-
         # Calculate short trend after the pattern (next 5 days if available)
         if i + pattern_length + 5 < len(hist):
             future_prices = hist['Close'].iloc[i+pattern_length:i+pattern_length+5]
@@ -208,29 +205,19 @@ if matches:
         else:
             trend = "N/A"
 
-        # Save results
         deja_results.append({
             "Date": date.date(),
             "Similarity": f"{similarity:.2%}",
-            "Trend After Pattern": trend,
-            "Pattern": pattern_prices.values  # For sparkline
+            "Trend After Pattern": trend
         })
 
-    # Convert to DataFrame for display
     deja_df = pd.DataFrame(deja_results)
-
-    # Display table with sparklines
-    for _, row in deja_df.iterrows():
-        col1, col2, col3, col4 = st.columns([2,2,2,4])
-        col1.write(row["Date"])
-        col2.write(row["Similarity"])
-        col3.write(row["Trend After Pattern"])
-        with col4:
-            st.line_chart(row["Pattern"])
+    st.dataframe(deja_df)
 else:
     st.write("No similar historical patterns found.")
 
 st.markdown("**Interpretation:** Shows past repeating patterns, their similarity, and what happened next (trend).")
+
 
 
 
