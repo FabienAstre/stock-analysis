@@ -169,6 +169,40 @@ for ticker in tickers:
     else:
         st.warning("Not enough data for prediction (requires at least 60 non-NaN closing prices).")
 
+        # --- Short-Term Trend Prediction ---
+    st.subheader("⏱️ Short-Term Trend Prediction (Next 1-2 Days)")
+    try:
+        short_window = 10
+        short_close = hist['Close'][-short_window:]
+        short_dates = np.arange(len(short_close)).reshape(-1,1)
+
+        # Linear regression slope
+        lr_model_short = LinearRegression()
+        lr_model_short.fit(short_dates, short_close.values)
+        slope = lr_model_short.coef_[0]
+
+        # Short-term EMA cross
+        ema5 = EMAIndicator(short_close, 5).ema_indicator().iloc[-1]
+        ema10 = EMAIndicator(short_close, 10).ema_indicator().iloc[-1]
+
+        # Volume trend
+        vol_trend = hist['Volume'][-short_window:].pct_change().mean()
+
+        # Short-term signal
+        short_signal = "HOLD ⏸️"
+        if slope > 0 and ema5 > ema10 and vol_trend > 0:
+            short_signal = "UP 📈"
+        elif slope < 0 and ema5 < ema10 and vol_trend < 0:
+            short_signal = "DOWN 📉"
+
+        st.write(f"Linear Regression slope: {slope:.4f}")
+        st.write(f"EMA5: {ema5:.2f} | EMA10: {ema10:.2f} | Volume trend: {vol_trend:.4f}")
+        st.markdown(f"**Short-Term Trend Signal: {short_signal}**")
+        st.markdown("**Explanation:** Combines last 10-day price slope, EMA5/EMA10 crossover, and recent volume trend to estimate next 1–2 day movement.")
+    except Exception as e:
+        st.warning(f"Short-term trend module encountered an error: {e}")
+
+
     # --- Déjà Vue Signals ---
     st.subheader("🔁 Déjà Vue Trading Signals")
     if matches:
