@@ -28,12 +28,45 @@ for ticker in tickers:
             st.warning("No historical data available.")
             continue
 
-        # --- Price Chart ---
-        st.subheader("Price Chart")
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=hist.index, y=hist['Close'], name='Close'))
-        fig.update_layout(height=400)
-        st.plotly_chart(fig, use_container_width=True)
+  # --- Price Chart ---
+st.subheader("Price Chart")
+
+# Show latest closing price as a number
+latest_price = hist['Close'].iloc[-1]
+st.metric(label="Latest Closing Price", value=f"${latest_price:.2f}")
+
+# Plot interactive chart with Plotly
+fig = go.Figure()
+fig.add_trace(go.Scatter(
+    x=hist.index,
+    y=hist['Close'],
+    mode='lines+markers',   # Add markers to highlight prices
+    name='Close',
+    line=dict(color='blue'),
+    marker=dict(size=4, color='red')
+))
+
+# Optional: highlight latest price on the chart
+fig.add_trace(go.Scatter(
+    x=[hist.index[-1]],
+    y=[latest_price],
+    mode='markers+text',
+    name='Latest Price',
+    marker=dict(color='green', size=10),
+    text=[f"${latest_price:.2f}"],
+    textposition="top right"
+))
+
+fig.update_layout(
+    height=400,
+    title=f"{ticker} Closing Prices",
+    xaxis_title="Date",
+    yaxis_title="Price (USD)",
+    showlegend=True
+)
+
+st.plotly_chart(fig, use_container_width=True)
+
 
         # --- Technical Indicators ---
         st.subheader("Technical Indicators")
