@@ -199,3 +199,91 @@ for ticker in tickers:
 
     except Exception as e:
         st.error(f"Error processing {ticker}: {e}")
+
+# --- Summary & Action Guidance ---
+st.subheader("📌 Summary & Action Guidance")
+
+# Initialize action indicators
+action_scores = {'buy': 0, 'hold': 0, 'sell': 0}
+
+# Trend
+if hist['Trend'].iloc[-1] == 'Uptrend':
+    action_scores['buy'] += 1
+else:
+    action_scores['sell'] += 1
+
+# Bollinger / MACD
+if hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1] and hist['MACD'].iloc[-1] > hist['MACD_signal'].iloc[-1]:
+    action_scores['buy'] += 1
+elif hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1] and hist['MACD'].iloc[-1] < hist['MACD_signal'].iloc[-1]:
+    action_scores['sell'] += 1
+else:
+    action_scores['hold'] += 1
+
+# Prediction
+if 'predicted_price' in locals():
+    if predicted_price > hist['Close'].iloc[-1] * 1.002:
+        action_scores['buy'] += 1
+    elif predicted_price < hist['Close'].iloc[-1] * 0.998:
+        action_scores['sell'] += 1
+    else:
+        action_scores['hold'] += 1
+
+# Déjà Vue
+if matches:
+    # Check historical pattern trend
+    last_match_index = matches[-1][0]
+    if hist['Close'].iloc[last_match_index + pattern_length] > hist['Close'].iloc[last_match_index]:
+        action_scores['buy'] += 1
+    else:
+        action_scores['sell'] += 1
+
+# RSI
+if rsi < 30:
+    action_scores['buy'] += 1
+elif rsi > 70:
+    action_scores['sell'] += 1
+else:
+    action_scores['hold'] += 1
+
+# PTB
+try:
+    if ptb < 1:
+        action_scores['buy'] += 1
+    elif ptb > 2:
+        action_scores['sell'] += 1
+    else:
+        action_scores['hold'] += 1
+except:
+    pass
+
+# Sentiment
+if sentiment_score > 0.3:
+    action_scores['buy'] += 1
+elif sentiment_score < -0.3:
+    action_scores['sell'] += 1
+else:
+    action_scores['hold'] += 1
+
+# Deviation
+if hist['Deviation'].iloc[-1] < -0.03:
+    action_scores['buy'] += 1
+elif hist['Deviation'].iloc[-1] > 0.03:
+    action_scores['sell'] += 1
+
+# Determine final recommendation
+final_action = max(action_scores, key=action_scores.get)
+
+# Display
+st.markdown(f"**Overall Recommendation:** {final_action.upper()}")
+
+# Key reasons
+reasons = []
+if action_scores['buy'] > 0: reasons.append("Positive trend / oversold / predicted price up / favorable PTB / positive sentiment / Déjà Vue positive")
+if action_scores['sell'] > 0: reasons.append("Downtrend / overbought / predicted price down / unfavorable PTB / negative sentiment / Déjà Vue negative")
+if action_scores['hold'] > 0: reasons.append("Neutral indicators or conflicting signals")
+
+st.markdown("**Key Reasons:**")
+for reason in reasons:
+    st.write("- " + reason)
+
