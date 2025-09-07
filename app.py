@@ -78,24 +78,37 @@ for ticker in tickers:
         st.dataframe(anomalies[['Close','Returns','ZScore']])
         st.write("**Interpretation:** Z-Score > 2 indicates unusual price movement. Could be a short-term trading opportunity.")
 
-        # --- Déjà Vue Trading ---
-   st.subheader("🔁 Déjà Vue Trading Signals")
-pattern_length = 5
+# --- Déjà Vue Trading ---
+st.subheader("🔁 Déjà Vue Trading Signals")
+
+# Parameters
+pattern_length = 5  # number of days in pattern
+threshold_similarity = 0.95  # correlation threshold for pattern match
+
+# Get last pattern
 last_pattern = hist['Close'].values[-pattern_length:]
+
+# Search for similar historical patterns
 matches = []
-for i in range(len(hist)-pattern_length-1):
-    hist_pattern = hist['Close'].values[i:i+pattern_length]
-    similarity = np.corrcoef(last_pattern, hist_pattern)[0,1]
-    if similarity > 0.95:  # high correlation
+for i in range(len(hist) - pattern_length):
+    hist_pattern = hist['Close'].values[i:i + pattern_length]
+    similarity = np.corrcoef(last_pattern, hist_pattern)[0, 1]
+    if similarity >= threshold_similarity:
         matches.append((i, hist.index[i], similarity))
 
+# Display results
 if matches:
-    matches_df = pd.DataFrame(matches, columns=['Index','Date','Similarity'])
+    matches_df = pd.DataFrame(matches, columns=['Index', 'Date', 'Similarity'])
     st.dataframe(matches_df)
 else:
-    st.write("No similar historical patterns found.")
+    st.info("No similar historical patterns found.")
 
-st.write("**Interpretation:** Detects repeating historical price patterns. High similarity may suggest history could repeat.")
+# Explanation
+st.markdown("""
+**Interpretation:**  
+This module detects repeating historical price patterns over the past period.  
+A high similarity (≥ 0.95) between the current pattern and past patterns may suggest the price could behave similarly, providing potential trading insights.
+""")
 
 
         # --- Trending & Reversion Signals ---
