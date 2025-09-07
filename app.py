@@ -167,45 +167,43 @@ for ticker in tickers:
         sentiment_score = get_sentiment_score(ticker)
         st.write(f"Sentiment Score (simulated): {sentiment_score} (-1=negative, +1=positive)")
         st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for situational insights.")
+# --- Key Reasons & Overall Recommendation ---
+reasons = []
+reasons.append(f"Trend: {trend}")
+if rsi < 30: reasons.append("RSI oversold → potential buy")
+elif rsi > 70: reasons.append("RSI overbought → potential sell")
+if hist['MACD_cross'].iloc[-1] == 'bullish': reasons.append("MACD bullish crossover")
+else: reasons.append("MACD bearish crossover")
+if hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]: reasons.append("Price below lower Bollinger → potential buy")
+elif hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]: reasons.append("Price above upper Bollinger → potential sell")
+if matches: reasons.append("Déjà Vue pattern found")
+if ptb:
+    if ptb < 1: reasons.append("PTB < 1 → undervalued")
+    elif ptb > 2: reasons.append("PTB > 2 → overvalued")
+if sentiment_score:
+    if sentiment_score > 0.3: reasons.append("Positive sentiment")
+    elif sentiment_score < -0.3: reasons.append("Negative sentiment")
+if deviation < -0.03: reasons.append("Price below SMA50 → potential bounce")
+elif deviation > 0.03: reasons.append("Price above SMA50 → potential pullback")
+if predicted_price:
+    reasons.append(f"Prediction signal: {signal}")
 
-        # --- Key Reasons & Overall Recommendation ---
-        reasons = []
-        reasons.append(f"Trend: {trend}")
-        if rsi < 30: reasons.append("RSI oversold → potential buy")
-        elif rsi > 70: reasons.append("RSI overbought → potential sell")
-        if hist['MACD_cross'].iloc[-1] == 'bullish': reasons.append("MACD bullish crossover")
-        else: reasons.append("MACD bearish crossover")
-        if hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]: reasons.append("Price below lower Bollinger → potential buy")
-        elif hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]: reasons.append("Price above upper Bollinger → potential sell")
-        if matches: reasons.append("Déjà Vue pattern found")
-        if ptb:
-            if ptb < 1: reasons.append("PTB < 1 → undervalued")
-            elif ptb > 2: reasons.append("PTB > 2 → overvalued")
-        if sentiment_score:
-            if sentiment_score > 0.3: reasons.append("Positive sentiment")
-            elif sentiment_score < -0.3: reasons.append("Negative sentiment")
-        if deviation < -0.03: reasons.append("Price below SMA50 → potential bounce")
-        elif deviation > 0.03: reasons.append("Price above SMA50 → potential pullback")
-        if predicted_price:
-            reasons.append(f"Prediction signal: {signal}")
+st.subheader("📌 Key Reasons")
+for r in reasons:
+    st.write("- " + r)
 
-        st.subheader("📌 Key Reasons")
-        for r in reasons:
-            st.write("- " + r)
+# --- Overall Recommendation ---
+score = 0
+if signal == "BUY ✅": score += 1
+elif signal == "SELL ❌": score -= 1
+if deviation < -0.03 or rsi < 30 or (hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]): score += 1
+if deviation > 0.03 or rsi > 70 or (hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]): score -= 1
 
-        # --- Overall Recommendation ---
-        score = 0
-        if signal == "BUY ✅": score += 1
-        elif signal == "SELL ❌": score -= 1
-        if deviation < -0.03 or rsi < 30 or (hist['Close'].iloc[-1] < hist['BB_lower'].iloc[-1]): score += 1
-        if deviation > 0.03 or rsi > 70 or (hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]): score -= 1
+if score > 0: overall = "BUY ✅"
+elif score < 0: overall = "SELL ❌"
+else: overall = "HOLD ⏸️"
 
-        if score > 0: overall = "BUY ✅"
-        elif score < 0: overall = "SELL ❌"
-        else: overall = "HOLD ⏸️"
-
-       # --- Overall Recommendation ---
 st.subheader("📌 Overall Recommendation")
 st.markdown(f"**{overall}**")
-st.markdown("This concludes the analysis for the selected stock(s).")
+st.markdown("This concludes the analysis for this stock.")
 
