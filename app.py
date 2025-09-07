@@ -276,41 +276,44 @@ final_action = max(action_scores, key=action_scores.get)
 
 # Display
 st.markdown(f"**Overall Recommendation:** {final_action.upper()}")
-
-# Key reasons
+# --- Key Reasons for Recommendation ---
 reasons = []
 
-# Trend
-if hist['Trend'].iloc[-1] == 'Uptrend':
+# 1️⃣ Trend Analysis
+trend = hist['Trend'].iloc[-1]
+if trend == 'Uptrend':
     reasons.append("Trend positive (SMA50 > SMA200)")
 else:
     reasons.append("Trend negative (SMA50 < SMA200)")
 
-# RSI
+# 2️⃣ RSI Analysis
 if rsi < 30:
-    reasons.append("RSI indicates oversold")
+    reasons.append("RSI indicates oversold → potential buying opportunity")
 elif rsi > 70:
-    reasons.append("RSI indicates overbought")
+    reasons.append("RSI indicates overbought → potential selling opportunity")
 
-# Bollinger/MACD
+# 3️⃣ Bollinger Bands & MACD
 last_row = hist.iloc[-1]
-if last_row['MACD_signal_cross'] == 'bullish':
-    reasons.append("MACD crossover bullish")
-elif last_row['MACD_signal_cross'] == 'bearish':
-    reasons.append("MACD crossover bearish")
+# MACD crossover
+macd_cross = last_row.get('MACD_signal_cross')
+if macd_cross == 'bullish':
+    reasons.append("MACD crossover bullish → positive momentum")
+elif macd_cross == 'bearish':
+    reasons.append("MACD crossover bearish → negative momentum")
+# Bollinger Bands deviation
 if last_row['Close'] < last_row['BB_lower']:
     reasons.append("Price below lower Bollinger Band → potential buy")
 elif last_row['Close'] > last_row['BB_upper']:
     reasons.append("Price above upper Bollinger Band → potential sell")
 
-# Predicted price
+# 4️⃣ Predicted Price / Trend
 if 'predicted_price' in locals():
     if predicted_price > latest_price * 1.002:
         reasons.append("Predicted price higher than current → buy signal")
     elif predicted_price < latest_price * 0.998:
         reasons.append("Predicted price lower than current → sell signal")
 
-# Déjà Vue
+# 5️⃣ Déjà Vue Historical Pattern
 if matches:
     last_match_index = matches[-1][0]
     if hist['Close'].iloc[last_match_index + pattern_length] > hist['Close'].iloc[last_match_index]:
@@ -318,7 +321,7 @@ if matches:
     else:
         reasons.append("Déjà Vue pattern historically led to losses")
 
-# PTB
+# 6️⃣ Price-to-Tangible Book (PTB)
 try:
     if ptb < 1:
         reasons.append("PTB < 1 → undervalued")
@@ -327,20 +330,20 @@ try:
 except:
     pass
 
-# Sentiment
+# 7️⃣ Sentiment Score
 if sentiment_score > 0.3:
-    reasons.append("Positive sentiment")
+    reasons.append("Positive sentiment → market optimism")
 elif sentiment_score < -0.3:
-    reasons.append("Negative sentiment")
+    reasons.append("Negative sentiment → market caution")
 
-# Deviation
+# 8️⃣ Deviation from SMA50
 if last_row['Deviation'] < -0.03:
     reasons.append("Price below SMA50 → potential bounce")
 elif last_row['Deviation'] > 0.03:
     reasons.append("Price above SMA50 → potential pullback")
 
-
-st.markdown("**Key Reasons:**")
+# --- Display Key Reasons ---
+st.markdown("**Key Reasons Driving the Recommendation:**")
 for reason in reasons:
     st.write("- " + reason)
 
