@@ -101,21 +101,24 @@ for ticker in tickers:
 
 # --- Advanced Prediction & Anomaly Signals ---
 st.subheader("Advanced Prediction Signals")
+
 signal = "HOLD ⏸️"
 predicted_price = None
 lookback = 30
 
+# Take last `lookback` closing prices and drop NaNs
 close_series = hist['Close'][-lookback:].dropna()
 
 if len(close_series) >= lookback:
     try:
-        # --- ARIMA Prediction ---
+        # --- Primary: ARIMA Prediction ---
         model = ARIMA(close_series, order=(5,1,0))
         model_fit = model.fit()
         forecast = model_fit.forecast(steps=1)
         predicted_price = forecast[0]
         current_price = hist['Close'].iloc[-1]
 
+        # Determine signal
         if predicted_price > current_price * 1.002:
             signal = "BUY ✅"
         elif predicted_price < current_price * 0.998:
@@ -126,22 +129,25 @@ if len(close_series) >= lookback:
         hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
         is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
 
+        # --- Display ---
         st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
         st.write(f"Signal: {signal}")
         if is_anomaly:
             st.write("Anomaly detected: unusual price movement ⚡")
         st.markdown("**Interpretation:** Combines ARIMA prediction and anomaly detection for high-confidence signals.")
 
-    except Exception as e:
-        # --- Fallback Linear Regression ---
+    except Exception as arima_error:
+        # --- Fallback: Linear Regression ---
         try:
-            X = np.arange(len(close_series)).reshape(-1, 1)
+            X = np.arange(len(close_series)).reshape(-1,1)
             y = close_series.values
+            from sklearn.linear_model import LinearRegression
             lr_model = LinearRegression()
             lr_model.fit(X, y)
             predicted_price = lr_model.predict(np.array([[len(close_series)]]))[0]
             current_price = hist['Close'].iloc[-1]
 
+            # Determine signal
             if predicted_price > current_price * 1.002:
                 signal = "BUY ✅"
             elif predicted_price < current_price * 0.998:
@@ -151,8 +157,8 @@ if len(close_series) >= lookback:
             st.write(f"Signal: {signal}")
             st.markdown("**Interpretation:** ARIMA failed; fallback linear regression used for prediction.")
 
-        except Exception as e2:
-            st.warning(f"Prediction could not be computed: {e2}")
+        except Exception as lr_error:
+            st.warning(f"Prediction could not be computed: {lr_error}")
 
 else:
     st.warning("Not enough valid data for prediction (requires at least 30 non-NaN closing prices).")
