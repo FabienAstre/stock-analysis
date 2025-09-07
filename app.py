@@ -10,6 +10,7 @@ from sklearn.linear_model import LinearRegression
 from prophet import Prophet
 import torch
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
+import plotly.graph_objects as go
 
 # --- Page config ---
 st.set_page_config(page_title="📊 Advanced Stock Analysis & AI Prediction App", layout="wide")
