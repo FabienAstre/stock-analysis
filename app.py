@@ -3,18 +3,16 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from ta.momentum import RSIIndicator
-from ta.trend import SMAIndicator, MACD
+from ta.trend import SMAIndicator, EMAIndicator, MACD, ADXIndicator
 from ta.volatility import BollingerBands
 from statsmodels.tsa.arima.model import ARIMA
 from sklearn.linear_model import LinearRegression
 from prophet import Prophet
-import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
 import plotly.graph_objects as go
 
 # --- Page config ---
-st.set_page_config(page_title="📊 Advanced Stock Analysis & AI Prediction App", layout="wide")
-st.title("📊 Advanced Stock Analysis & AI Prediction App")
+st.set_page_config(page_title="📊 Advanced Stock Analysis & Prediction App", layout="wide")
+st.title("📊 Advanced Stock Analysis & Prediction App")
 
 # --- Sidebar ---
 st.sidebar.header("Settings")
@@ -24,30 +22,11 @@ tickers = [t.strip().upper() for t in tickers_input.split(",")]
 
 st.sidebar.header("Chart Options")
 show_sma = st.sidebar.checkbox("Show SMA50 & SMA200", value=True)
+show_ema = st.sidebar.checkbox("Show EMA20 & EMA50", value=True)
 show_bb = st.sidebar.checkbox("Show Bollinger Bands", value=True)
 show_macd = st.sidebar.checkbox("Show MACD", value=True)
+show_adx = st.sidebar.checkbox("Show ADX", value=True)
 show_deja = st.sidebar.checkbox("Show Déjà Vue Patterns", value=True)
-
-# --- Load FinBERT model for sentiment ---
-@st.cache_resource
-def load_finbert():
-    tokenizer = AutoTokenizer.from_pretrained("yiyanghkust/finbert-tone")
-    model = AutoModelForSequenceClassification.from_pretrained("yiyanghkust/finbert-tone")
-    return tokenizer, model
-
-tokenizer, finbert_model = load_finbert()
-
-# --- Function: Get sentiment from news headlines ---
-def get_news_sentiment(headlines):
-    scores = []
-    for text in headlines:
-        inputs = tokenizer(text, return_tensors="pt", truncation=True)
-        with torch.no_grad():
-            outputs = finbert_model(**inputs)
-            probs = torch.softmax(outputs.logits, dim=1).numpy()[0]
-            score = probs[2] - probs[0]  # positive minus negative
-            scores.append(score)
-    return np.mean(scores) if scores else 0.0
 
 # --- Loop through tickers ---
 for ticker in tickers:
@@ -67,11 +46,13 @@ for ticker in tickers:
     latest_price = hist['Close'].iloc[-1]
     st.subheader("Latest Closing Price")
     st.metric(label="Price", value=f"${latest_price:.2f}")
+    st.markdown("**Explanation:** Shows the most recent market closing price for quick reference.")
 
     # --- Indicators ---
     hist['SMA50'] = SMAIndicator(hist['Close'], 50).sma_indicator()
     hist['SMA200'] = SMAIndicator(hist['Close'], 200).sma_indicator()
-    hist['SMA20'] = SMAIndicator(hist['Close'], 20).sma_indicator()
+    hist['EMA20'] = EMAIndicator(hist['Close'], 20).ema_indicator()
+    hist['EMA50'] = EMAIndicator(hist['Close'], 50).ema_indicator()
     bb = BollingerBands(hist['Close'], 20, 2)
     hist['BB_upper'] = bb.bollinger_hband()
     hist['BB_lower'] = bb.bollinger_lband()
@@ -80,8 +61,10 @@ for ticker in tickers:
     hist['MACD_signal'] = macd_indicator.macd_signal()
     hist['MACD_cross'] = np.where(hist['MACD'] > hist['MACD_signal'], 'bullish', 'bearish')
     rsi = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
+    adx = ADXIndicator(hist['High'], hist['Low'], hist['Close'], 14).adx().iloc[-1]
+    hist['VolumeTrend'] = hist['Volume'].rolling(5).mean()  # Simple volume trend
 
-    # --- Déjà Vue ---
+    # --- Déjà Vue Patterns ---
     pattern_length = 5
     last_pattern = hist['Close'].values[-pattern_length:]
     matches = []
@@ -91,7 +74,7 @@ for ticker in tickers:
         if similarity > 0.95:
             matches.append((i, hist.index[i], similarity))
 
-     # --- Candlestick Chart + Selected Indicators ---
+    # --- Candlestick Chart + Indicators ---
     st.subheader("Candlestick Chart + Indicators")
     fig = go.Figure()
     fig.add_trace(go.Candlestick(
@@ -105,6 +88,9 @@ for ticker in tickers:
     if show_sma:
         fig.add_trace(go.Scatter(x=hist.index, y=hist['SMA50'], line=dict(color='blue'), name='SMA50'))
         fig.add_trace(go.Scatter(x=hist.index, y=hist['SMA200'], line=dict(color='red'), name='SMA200'))
+    if show_ema:
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['EMA20'], line=dict(color='green', dash='dot'), name='EMA20'))
+        fig.add_trace(go.Scatter(x=hist.index, y=hist['EMA50'], line=dict(color='purple', dash='dot'), name='EMA50'))
     if show_bb:
         fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_upper'], line=dict(color='orange'), name='BB Upper'))
         fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_lower'], line=dict(color='orange'), name='BB Lower'))
@@ -116,7 +102,7 @@ for ticker in tickers:
             fig.add_vline(x=match[1], line_width=1, line_dash="dash", line_color="purple")
     fig.update_layout(height=500, xaxis_title="Date", yaxis_title="Price")
     st.plotly_chart(fig, use_container_width=True)
-
+    st.markdown("**Explanation:** Candlestick chart shows price action. SMAs, EMAs, MACD, and Bollinger Bands help identify trends and volatility. Purple lines indicate repeating historical patterns (Déjà Vue).")
 
     # --- Advanced Prediction & Anomaly Signals ---
     st.subheader("Advanced Prediction Signals")
@@ -166,7 +152,7 @@ for ticker in tickers:
             except:
                 pass
 
-            # --- Combine Predictions ---
+            # --- Combine Predictions (Ensemble) ---
             preds = [p for p in [arima_pred, lr_pred, prophet_pred] if p is not None]
             if preds:
                 predicted_price = np.mean(preds)
@@ -190,7 +176,7 @@ for ticker in tickers:
             if is_anomaly:
                 st.write("⚡ Anomaly detected: unusual price movement")
 
-            st.markdown("**Interpretation:** Ensemble of ARIMA, LR, Prophet + anomaly detection.")
+            st.markdown("**Explanation:** Uses an ensemble of ARIMA, Linear Regression, and Prophet forecasts. Detects anomalies with Z-score analysis.")
 
         else:
             st.warning("Not enough valid data for prediction (requires at least 60 non-NaN closing prices).")
@@ -216,33 +202,17 @@ for ticker in tickers:
         st.dataframe(deja_df)
     else:
         st.write("No similar historical patterns found.")
-    st.markdown("**Interpretation:** Shows repeating patterns, their similarity, and subsequent trend.")
+    st.markdown("**Explanation:** Shows historical patterns that repeat (Déjà Vue) and the trend that followed them.")
 
     # --- Trending & Mean-Reversion ---
     st.subheader("📊 Trending & Mean-Reversion Signals")
     trend = "Uptrend" if hist['SMA50'].iloc[-1] > hist['SMA200'].iloc[-1] else "Downtrend"
     deviation = (hist['Close'].iloc[-1]-hist['SMA50'].iloc[-1])/hist['SMA50'].iloc[-1]
     st.write(f"Latest Trend Signal: {trend}")
-    st.markdown("**Interpretation:** Trend shows market direction; deviation shows potential pullback/rebound.")
+    st.write(f"RSI: {rsi:.2f} | ADX: {adx:.2f} | Volume Trend: {hist['VolumeTrend'].iloc[-1]:.0f}")
+    st.markdown("**Explanation:** SMA cross identifies long-term trend. RSI identifies overbought/oversold. ADX measures trend strength. Volume trend confirms market participation.")
 
-    # --- PTB ---
-    st.subheader("💰 Price to Tangible Book (PTB)")
-    try:
-        ptb = stock.info.get('priceToBook', None)
-    except:
-        ptb = None
-    st.write(f"Price to Tangible Book: {ptb if ptb else 'N/A'}")
-    st.markdown("**Interpretation:** PTB <1 may indicate undervalued relative to tangible assets.")
-
-    # --- Sentiment ---
-    st.subheader("🧐 Situational Analysis & Sentiment Score")
-    # Example: Fetch headlines from API or use placeholder
-    headlines = [f"{ticker} news headline 1", f"{ticker} news headline 2"]
-    sentiment_score = get_news_sentiment(headlines)
-    st.write(f"News Sentiment Score: {sentiment_score:.2f} (-1=negative, +1=positive)")
-    st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and news sentiment.")
-
-    # --- Key Reasons & AI-driven Overall Recommendation ---
+    # --- Key Reasons & Overall Recommendation ---
     reasons = []
     reasons.append(f"Trend: {trend}")
     if rsi < 30: reasons.append("RSI oversold → potential buy")
@@ -254,28 +224,22 @@ for ticker in tickers:
     elif hist['Close'].iloc[-1] > hist['BB_upper'].iloc[-1]:
         reasons.append("Price above upper Bollinger → potential sell")
     if matches: reasons.append("Déjà Vue pattern found")
-    if ptb:
-        if ptb < 1: reasons.append("PTB <1 → undervalued")
-        elif ptb > 2: reasons.append("PTB >2 → overvalued")
     if deviation < -0.03: reasons.append("Price below SMA50 → potential bounce")
     elif deviation > 0.03: reasons.append("Price above SMA50 → potential pullback")
     if predicted_price: reasons.append(f"Prediction signal: {signal}")
-    if sentiment_score > 0.3: reasons.append("Positive news sentiment")
-    elif sentiment_score < -0.3: reasons.append("Negative news sentiment")
 
     st.subheader("📌 Key Reasons")
     for r in reasons:
         st.write("- " + r)
 
-    # --- AI-driven Recommendation ---
+    # --- Overall Recommendation ---
     weights = {
         "prediction": 0.5,
         "rsi": 0.2,
         "macd": 0.1,
         "bollinger": 0.1,
-        "sentiment": 0.1
+        "adx": 0.1
     }
-
     score = 0
     if signal == "BUY ✅": score += weights["prediction"]
     elif signal == "SELL ❌": score -= weights["prediction"]
@@ -284,11 +248,9 @@ for ticker in tickers:
     elif rsi > 70: score -= weights["rsi"]
 
     score += weights["macd"] if hist['MACD_cross'].iloc[-1]=='bullish' else -weights["macd"]
-
     if deviation < -0.03: score += weights["bollinger"]
     elif deviation > 0.03: score -= weights["bollinger"]
-
-    score += sentiment_score * weights["sentiment"]
+    score += weights["adx"] if adx > 20 else -weights["adx"]
 
     if score > 0: overall = "BUY ✅"
     elif score < 0: overall = "SELL ❌"
@@ -296,4 +258,4 @@ for ticker in tickers:
 
     st.subheader("📌 Overall Recommendation")
     st.markdown(f"**{overall}**")
-    st.markdown("This concludes the analysis for this stock.")
+    st.markdown("**Explanation:** Combines prediction ensemble, technical indicators, trend strength, and deviation from SMA50 to give a reliable trading signal.")
