@@ -20,6 +20,7 @@ tickers = [t.strip().upper() for t in tickers_input.split(",")]
 for ticker in tickers:
     st.header(f"{ticker} Analysis")
     try:
+        # --- Fetch historical data ---
         stock = yf.Ticker(ticker)
         hist = stock.history(period=period)
 
@@ -35,15 +36,15 @@ for ticker in tickers:
         st.plotly_chart(fig, use_container_width=True)
 
         # --- Technical Indicators ---
-        st.subheader("Technical Indicators & Explanation")
+        st.subheader("Technical Indicators")
         hist['SMA20'] = SMAIndicator(hist['Close'], 20).sma_indicator()
         hist['EMA20'] = EMAIndicator(hist['Close'], 20).ema_indicator()
         hist['RSI14'] = RSIIndicator(hist['Close'], 14).rsi()
         st.line_chart(hist[['Close', 'SMA20', 'EMA20']])
         st.line_chart(hist['RSI14'])
-        st.write("""
+        st.markdown("""
         **Interpretation:**  
-        - **SMA/EMA:** Shows the average price trend; EMA reacts faster to recent changes.  
+        - **SMA/EMA:** Show average price trends; EMA reacts faster to recent changes.  
         - **RSI:** >70 = overbought, <30 = oversold. Indicates potential reversal points.
         """)
 
@@ -68,47 +69,36 @@ for ticker in tickers:
                 st.info("Signal: HOLD ⏸️")
         else:
             st.warning("Not enough data for prediction (needs at least 30 days).")
-        st.write("**Interpretation:** Linear regression forecasts the next-day price based on recent trends. Compare predicted vs current price for potential signals.")
+        st.markdown("**Interpretation:** Predicts next-day price based on recent trends using linear regression.")
 
         # --- Anomaly Trading ---
         st.subheader("⚡ Anomaly Trading Signals")
         hist['Returns'] = hist['Close'].pct_change()
         hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
         anomalies = hist[abs(hist['ZScore']) > 2]
-        st.dataframe(anomalies[['Close','Returns','ZScore']])
-        st.write("**Interpretation:** Z-Score > 2 indicates unusual price movement. Could be a short-term trading opportunity.")
+        if not anomalies.empty:
+            st.dataframe(anomalies[['Close','Returns','ZScore']])
+        else:
+            st.info("No anomalies detected.")
+        st.markdown("**Interpretation:** Z-Score > 2 indicates unusual price movement. Could suggest a short-term trading opportunity.")
 
-try:
-    hist = stock.history(period=period)
-
-    # --- Déjà Vue Trading ---
-    st.subheader("🔁 Déjà Vue Trading Signals")
-    pattern_length = 5
-    threshold_similarity = 0.95
-    last_pattern = hist['Close'].values[-pattern_length:]
-    matches = []
-    for i in range(len(hist) - pattern_length):
-        hist_pattern = hist['Close'].values[i:i + pattern_length]
-        similarity = np.corrcoef(last_pattern, hist_pattern)[0, 1]
-        if similarity >= threshold_similarity:
-            matches.append((i, hist.index[i], similarity))
-
-    if matches:
-        matches_df = pd.DataFrame(matches, columns=['Index', 'Date', 'Similarity'])
-        st.dataframe(matches_df)
-    else:
-        st.info("No similar historical patterns found.")
-
-    st.markdown("""
-    **Interpretation:**  
-    This module detects repeating historical price patterns over the past period.  
-    A high similarity (≥ 0.95) between the current pattern and past patterns may suggest the price could behave similarly.
-    """)
-
-except Exception as e:
-    st.error(f"Error processing {ticker}: {e}")
-
-
+        # --- Déjà Vue Trading ---
+        st.subheader("🔁 Déjà Vue Trading Signals")
+        pattern_length = 5
+        threshold_similarity = 0.95
+        last_pattern = hist['Close'].values[-pattern_length:]
+        matches = []
+        for i in range(len(hist) - pattern_length):
+            hist_pattern = hist['Close'].values[i:i + pattern_length]
+            similarity = np.corrcoef(last_pattern, hist_pattern)[0, 1]
+            if similarity >= threshold_similarity:
+                matches.append((i, hist.index[i], similarity))
+        if matches:
+            matches_df = pd.DataFrame(matches, columns=['Index', 'Date', 'Similarity'])
+            st.dataframe(matches_df)
+        else:
+            st.info("No similar historical patterns found.")
+        st.markdown("**Interpretation:** Detects repeating historical price patterns. High similarity may suggest history could repeat.")
 
         # --- Trending & Reversion Signals ---
         st.subheader("📊 Trending & Mean-Reversion Signals")
@@ -122,7 +112,7 @@ except Exception as e:
             st.warning("Price above SMA50 by >3%: potential mean-reversion")
         elif hist['Deviation'].iloc[-1] < -0.03:
             st.success("Price below SMA50 by >3%: potential mean-reversion")
-        st.write("**Interpretation:** Trend analysis shows overall market direction. Deviation indicates potential pullback or rebound.")
+        st.markdown("**Interpretation:** Trend shows market direction. Deviation indicates potential pullback or rebound.")
 
         # --- Price to Tangible Book ---
         st.subheader("💰 Price to Tangible Book (PTB)")
@@ -131,7 +121,7 @@ except Exception as e:
             intangible = stock.info.get('intangibleAssets', 0)
             ptb = stock.info['currentPrice'] / (book_value - intangible)
             st.write(f"Price to Tangible Book: **{ptb:.2f}**")
-            st.write("**Interpretation:** PTB < 1 may indicate undervalued relative to tangible assets.")
+            st.markdown("**Interpretation:** PTB < 1 may indicate undervalued relative to tangible assets.")
         except:
             st.write("PTB not available")
 
@@ -149,7 +139,7 @@ except Exception as e:
             st.info("Price near 52-week low")
         if abs(vol_percent) > 5:
             st.write(f"Significant deviation from 20-day mean: {vol_percent:.2f}%")
-        st.write("**Interpretation:** Situational analysis combines RSI, price relative to 52-week high/low, and recent volatility to find potential trading opportunities.")
+        st.markdown("**Interpretation:** Combines RSI, 52-week levels, and short-term volatility for potential trading opportunities.")
 
     except Exception as e:
-        st.error(f"Error fetching {ticker}: {e}")
+        st.error(f"Error processing {ticker}: {e}")
