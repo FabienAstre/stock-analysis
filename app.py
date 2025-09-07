@@ -18,11 +18,12 @@ df_summary = []
 # ================================
 # 🔧 Helper Functions
 # ================================
-
 def fetch_price_data(ticker, period="1y"):
-    """Fetch historical OHLC data from Yahoo Finance."""
     data = yf.download(ticker, period=period)
     return data
+
+def safe_float(x):
+    return float(x) if x is not None and not pd.isna(x) else None
 
 def compute_rsi(series, window=14):
     if series.empty or len(series) < window:
@@ -34,7 +35,7 @@ def compute_rsi(series, window=14):
     avg_loss = loss.rolling(window=window).mean()
     rs = avg_gain / avg_loss
     rsi = 100 - (100 / (1 + rs))
-    return float(rsi.iloc[-1]) if not pd.isna(rsi.iloc[-1]) else None
+    return safe_float(rsi.iloc[-1])
 
 def compute_zscore(series, window=20):
     if series.empty or len(series) < window:
@@ -43,7 +44,7 @@ def compute_zscore(series, window=20):
     std = series.rolling(window).std().iloc[-1]
     if std == 0 or pd.isna(std):
         return None
-    return float((series.iloc[-1] - mean) / std)
+    return safe_float((series.iloc[-1] - mean) / std)
 
 def compute_macd(series, fast=12, slow=26, signal=9):
     if series.empty or len(series) < slow:
@@ -52,14 +53,14 @@ def compute_macd(series, fast=12, slow=26, signal=9):
     exp2 = series.ewm(span=slow, adjust=False).mean()
     macd = exp1 - exp2
     signal_line = macd.ewm(span=signal, adjust=False).mean()
-    return float(macd.iloc[-1]), float(signal_line.iloc[-1])
+    return safe_float(macd.iloc[-1]), safe_float(signal_line.iloc[-1])
 
 def compute_bollinger(series, window=20, num_std=2):
     if series.empty or len(series) < window:
         return None, None, None
     sma = series.rolling(window).mean().iloc[-1]
     std = series.rolling(window).std().iloc[-1]
-    return float(sma), float(sma + num_std * std), float(sma - num_std * std)
+    return safe_float(sma), safe_float(sma + num_std * std), safe_float(sma - num_std * std)
 
 def anomaly_score(series):
     returns = series.pct_change().dropna()
@@ -68,7 +69,7 @@ def anomaly_score(series):
     rolling_vol = returns.rolling(20).std().iloc[-1]
     if rolling_vol == 0 or pd.isna(rolling_vol):
         return None
-    return float(returns.iloc[-1] / rolling_vol)
+    return safe_float(returns.iloc[-1] / rolling_vol)
 
 def deja_vu_similarity(series, window=10):
     if len(series) < window * 2:
@@ -80,7 +81,7 @@ def deja_vu_similarity(series, window=10):
         if len(past) == len(recent):
             corr = np.corrcoef(recent, past)[0, 1]
             best_corr = max(best_corr, corr)
-    return float(best_corr) if best_corr >= 0 else None
+    return safe_float(best_corr) if best_corr >= 0 else None
 
 def trending_reversion_signals(series):
     if len(series) < 50:
@@ -100,7 +101,7 @@ def trending_reversion_signals(series):
     else:
         return "Neutral"
 
-def situational_analysis(series, fundamentals, rsi, macd, macd_signal):
+def situational_analysis(series, pe, rsi, macd, macd_signal, zscore):
     if len(series) < 50 or rsi is None or macd is None or macd_signal is None:
         return "Not enough data"
 
@@ -118,13 +119,11 @@ def situational_analysis(series, fundamentals, rsi, macd, macd_signal):
     else:
         momentum = "Neutral"
 
-    zscore = compute_zscore(series)
-    pe = fundamentals.get("trailingPE", None)
     valuation = "Fair"
     if zscore is not None:
-        if zscore < -1 and pe and pe < 20:
+        if zscore < -1 and pe is not None and pe < 20:
             valuation = "Undervalued"
-        elif zscore > 1 and pe and pe > 30:
+        elif zscore > 1 and pe is not None and pe > 30:
             valuation = "Overvalued"
 
     if trend == "Bullish" and vol_regime == "Low" and valuation == "Undervalued":
@@ -153,7 +152,7 @@ for ticker in [t.strip().upper() for t in tickers]:
             st.warning(f"No closing price data for {ticker}")
             continue
 
-        current_price = float(close.iloc[-1])
+        current_price = safe_float(close.iloc[-1])
 
         # === Technicals ===
         rsi = compute_rsi(close)
@@ -168,7 +167,11 @@ for ticker in [t.strip().upper() for t in tickers]:
 
         # === Fundamentals ===
         info = yf.Ticker(ticker).info
-        situational = situational_analysis(close, info, rsi, macd, macd_signal)
+        pe = safe_float(info.get("trailingPE"))
+        pb = safe_float(info.get("priceToBook"))
+        div = safe_float(info.get("dividendYield"))
+
+        situational = situational_analysis(close, pe, rsi, macd, macd_signal, zscore)
 
         df_summary.append({
             "Ticker": ticker,
@@ -181,10 +184,10 @@ for ticker in [t.strip().upper() for t in tickers]:
             "Déjà Vu Corr": deja_corr,
             "Trend/Reversion": trend_signal,
             "Situational Analysis": situational,
-            "P/E": info.get("trailingPE"),
-            "P/B": info.get("priceToBook"),
-            "Dividend Yield": info.get("dividendYield"),
-            "Market Cap": info.get("marketCap")
+            "P/E": pe,
+            "P/B": pb,
+            "Dividend Yield": div,
+            "Market Cap": safe_float(info.get("marketCap"))
         })
 
         # === Chart ===
