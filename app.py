@@ -279,9 +279,66 @@ st.markdown(f"**Overall Recommendation:** {final_action.upper()}")
 
 # Key reasons
 reasons = []
-if action_scores['buy'] > 0: reasons.append("Positive trend / oversold / predicted price up / favorable PTB / positive sentiment / Déjà Vue positive")
-if action_scores['sell'] > 0: reasons.append("Downtrend / overbought / predicted price down / unfavorable PTB / negative sentiment / Déjà Vue negative")
-if action_scores['hold'] > 0: reasons.append("Neutral indicators or conflicting signals")
+
+# Trend
+if hist['Trend'].iloc[-1] == 'Uptrend':
+    reasons.append("Trend positive (SMA50 > SMA200)")
+else:
+    reasons.append("Trend negative (SMA50 < SMA200)")
+
+# RSI
+if rsi < 30:
+    reasons.append("RSI indicates oversold")
+elif rsi > 70:
+    reasons.append("RSI indicates overbought")
+
+# Bollinger/MACD
+last_row = hist.iloc[-1]
+if last_row['MACD_signal_cross'] == 'bullish':
+    reasons.append("MACD crossover bullish")
+elif last_row['MACD_signal_cross'] == 'bearish':
+    reasons.append("MACD crossover bearish")
+if last_row['Close'] < last_row['BB_lower']:
+    reasons.append("Price below lower Bollinger Band → potential buy")
+elif last_row['Close'] > last_row['BB_upper']:
+    reasons.append("Price above upper Bollinger Band → potential sell")
+
+# Predicted price
+if 'predicted_price' in locals():
+    if predicted_price > latest_price * 1.002:
+        reasons.append("Predicted price higher than current → buy signal")
+    elif predicted_price < latest_price * 0.998:
+        reasons.append("Predicted price lower than current → sell signal")
+
+# Déjà Vue
+if matches:
+    last_match_index = matches[-1][0]
+    if hist['Close'].iloc[last_match_index + pattern_length] > hist['Close'].iloc[last_match_index]:
+        reasons.append("Déjà Vue pattern historically led to gains")
+    else:
+        reasons.append("Déjà Vue pattern historically led to losses")
+
+# PTB
+try:
+    if ptb < 1:
+        reasons.append("PTB < 1 → undervalued")
+    elif ptb > 2:
+        reasons.append("PTB > 2 → overvalued")
+except:
+    pass
+
+# Sentiment
+if sentiment_score > 0.3:
+    reasons.append("Positive sentiment")
+elif sentiment_score < -0.3:
+    reasons.append("Negative sentiment")
+
+# Deviation
+if last_row['Deviation'] < -0.03:
+    reasons.append("Price below SMA50 → potential bounce")
+elif last_row['Deviation'] > 0.03:
+    reasons.append("Price above SMA50 → potential pullback")
+
 
 st.markdown("**Key Reasons:**")
 for reason in reasons:
