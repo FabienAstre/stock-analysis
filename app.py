@@ -71,41 +71,57 @@ for ticker in tickers:
         - **MACD line crosses below signal** → bearish trend → consider selling or holding off.
         """)
 
-        # --- Advanced Prediction + Anomaly ---
-        st.subheader("Advanced Prediction & Anomaly Signals")
-        lookback = 30
-        if len(hist) >= lookback:
-            hist['Day'] = np.arange(len(hist))
-            X = hist['Day'].values[-lookback:].reshape(-1,1)
-            y = hist['Close'].values[-lookback:]
-            model = LinearRegression()
-            model.fit(X, y)
-            next_day = np.array([[X[-1][0] + 1]])
-            predicted_price = model.predict(next_day)[0]
-            current_price = hist['Close'].iloc[-1]
+       # --- Advanced Prediction & Anomaly Signals ---
+st.subheader("Advanced Prediction & Anomaly Signals")
 
-            hist['Returns'] = hist['Close'].pct_change()
-            hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
-            is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
+lookback = 30
+if len(hist) >= lookback:
+    hist['Day'] = np.arange(len(hist))
+    X = hist['Day'].values[-lookback:].reshape(-1,1)
+    y = hist['Close'].values[-lookback:]
+    model = LinearRegression()
+    model.fit(X, y)
+    next_day = np.array([[X[-1][0] + 1]])
+    predicted_price = model.predict(next_day)[0]
+    current_price = hist['Close'].iloc[-1]
 
-            st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
-            if predicted_price > current_price * 1.002:
-                st.success("Signal: BUY ✅")
-            elif predicted_price < current_price * 0.998:
-                st.error("Signal: SELL ❌")
-            else:
-                st.info("Signal: HOLD ⏸️")
-            if is_anomaly:
-                st.warning("Anomaly detected: unusual price movement ⚡")
-        else:
-            st.warning("Not enough data for prediction.")
+    # Z-score anomaly
+    hist['Returns'] = hist['Close'].pct_change()
+    hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
+    is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
 
-        st.markdown("""
-        **Interpretation & Actions:**  
-        - Prediction > current price → potential buy  
-        - Prediction < current price → potential sell  
-        - Large Z-score anomaly → market behaving unusually, use caution
-        """)
+    # Determine dynamic signal
+    if predicted_price > current_price * 1.002:
+        signal = "BUY ✅"
+        signal_action = "Potential buy opportunity"
+    elif predicted_price < current_price * 0.998:
+        signal = "SELL ❌"
+        signal_action = "Potential sell opportunity"
+    else:
+        signal = "HOLD ⏸️"
+        signal_action = "Price predicted stable, consider holding"
+
+    st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
+    st.write(f"Signal: {signal}")
+
+    # Dynamic interpretation
+    interpretation = []
+    if predicted_price > current_price:
+        interpretation.append(f"Predicted price (${predicted_price:.2f}) is higher than current (${current_price:.2f}) → {signal_action}")
+    elif predicted_price < current_price:
+        interpretation.append(f"Predicted price (${predicted_price:.2f}) is lower than current (${current_price:.2f}) → {signal_action}")
+    else:
+        interpretation.append(f"Predicted price (${predicted_price:.2f}) is roughly equal to current → {signal_action}")
+
+    if is_anomaly:
+        interpretation.append("Large Z-score anomaly detected → market behaving unusually, use caution")
+
+    st.markdown("**Interpretation & Actions:**")
+    for item in interpretation:
+        st.write("- " + item)
+else:
+    st.warning("Not enough data for prediction (requires at least 30 days).")
+
 
         # --- Déjà Vue Trading ---
         st.subheader("🔁 Déjà Vue Trading Signals")
