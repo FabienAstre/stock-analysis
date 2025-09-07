@@ -98,14 +98,14 @@ for ticker in tickers:
             fig.add_vline(x=match[1], line_width=1, line_dash="dash", line_color="purple")
     fig.update_layout(height=500, xaxis_title="Date", yaxis_title="Price")
     st.plotly_chart(fig, use_container_width=True)
-
 # --- Advanced Prediction & Anomaly Signals ---
 st.subheader("Advanced Prediction Signals")
 
 signal = "HOLD ⏸️"
 predicted_price = None
-lookback = 30
+lookback = 60  # Prophet & ARIMA work better with ~2 months of data
 is_anomaly = False
+conf_interval = None  # Confidence interval from Prophet
 
 try:
     close_series = hist['Close'][-lookback:].dropna()
@@ -122,7 +122,7 @@ try:
         except:
             pass  # ARIMA failed
 
-        # --- Linear Regression Fallback ---
+        # --- Linear Regression ---
         lr_pred = None
         try:
             from sklearn.linear_model import LinearRegression
@@ -134,39 +134,56 @@ try:
         except:
             pass  # LR failed
 
-        # --- SMA Adjustment (Momentum) ---
-        sma5 = hist['Close'][-5:].mean()
-        sma10 = hist['Close'][-10:].mean()
-        sma_adjustment = (sma5 + sma10) / 2
+        # --- Prophet Forecast ---
+        prophet_pred = None
+        try:
+            from prophet import Prophet
+            df_prophet = close_series.reset_index()
+            df_prophet.columns = ['ds', 'y']
+            prophet = Prophet(daily_seasonality=True, interval_width=0.95)
+            prophet.fit(df_prophet)
+            future = prophet.make_future_dataframe(periods=1)
+            forecast = prophet.predict(future)
+            prophet_pred = forecast['yhat'].iloc[-1]
+            conf_interval = (
+                forecast['yhat_lower'].iloc[-1],
+                forecast['yhat_upper'].iloc[-1]
+            )
+        except:
+            pass  # Prophet failed
 
-        # --- Combine Predictions ---
-        preds = [p for p in [arima_pred, lr_pred, sma_adjustment] if p is not None]
+        # --- Combine Predictions (Ensemble) ---
+        preds = [p for p in [arima_pred, lr_pred, prophet_pred] if p is not None]
         if preds:
             predicted_price = np.mean(preds)
 
         # --- Generate Signal ---
-        if predicted_price > current_price * 1.002:
-            signal = "BUY ✅"
-        elif predicted_price < current_price * 0.998:
-            signal = "SELL ❌"
+        if predicted_price:
+            if predicted_price > current_price * 1.002:
+                signal = "BUY ✅"
+            elif predicted_price < current_price * 0.998:
+                signal = "SELL ❌"
 
-        st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
-        st.write(f"Signal: {signal}")
+            st.write(f"Predicted next-day close: **${predicted_price:.2f}**")
+            if conf_interval:
+                st.write(f"(95% CI: ${conf_interval[0]:.2f} – ${conf_interval[1]:.2f})")
+            st.write(f"Signal: {signal}")
 
         # --- Z-score anomaly ---
         hist['Returns'] = hist['Close'].pct_change()
         hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
         is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
         if is_anomaly:
-            st.write("Anomaly detected: unusual price movement ⚡")
+            st.write("⚡ Anomaly detected: unusual price movement")
 
-        st.markdown("**Interpretation:** Combines ARIMA, Linear Regression, SMA trends, and anomaly detection for robust prediction.")
+        st.markdown("**Interpretation:** Uses an ensemble of ARIMA, Linear Regression, and Prophet (with confidence intervals) + anomaly detection.")
 
     else:
-        st.warning("Not enough valid data for prediction (requires at least 30 non-NaN closing prices).")
+        st.warning("Not enough valid data for prediction (requires at least 60 non-NaN closing prices).")
 
 except Exception as e:
     st.warning(f"Prediction module encountered an error but other modules will continue: {e}")
+
 
 
 # --- Déjà Vue Signals ---
