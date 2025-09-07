@@ -99,37 +99,65 @@ for ticker in tickers:
     fig.update_layout(height=500, xaxis_title="Date", yaxis_title="Price")
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Advanced Prediction & Anomaly Signals ---
-    st.subheader("Advanced Prediction Signals")
-    signal = "HOLD ⏸️"
-    predicted_price = None
-    lookback = 30
-    if len(hist) >= lookback:
-        try:
-            model = ARIMA(hist['Close'][-lookback:], order=(5,1,0))
-            model_fit = model.fit()
-            forecast = model_fit.forecast(steps=1)
-            predicted_price = forecast[0]
-            current_price = hist['Close'].iloc[-1]
-            if predicted_price > current_price*1.002:
-                signal = "BUY ✅"
-            elif predicted_price < current_price*0.998:
-                signal = "SELL ❌"
+   # --- Advanced Prediction & Anomaly Signals ---
+st.subheader("Advanced Prediction Signals")
+signal = "HOLD ⏸️"
+predicted_price = None
+lookback = 30
 
-            # Z-score anomaly
-            hist['Returns'] = hist['Close'].pct_change()
-            hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean())/hist['Returns'].std()
-            is_anomaly = abs(hist['ZScore'].iloc[-1])>2
+# Ensure enough valid data
+close_series = hist['Close'][-lookback:].dropna()
+if len(close_series) >= lookback:
+    try:
+        # Try ARIMA prediction
+        model = ARIMA(close_series, order=(5,1,0))
+        model_fit = model.fit()
+        forecast = model_fit.forecast(steps=1)
+        predicted_price = forecast[0]
+        current_price = hist['Close'].iloc[-1]
 
-            st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
-            st.write(f"Signal: {signal}")
-            if is_anomaly:
-                st.write("Anomaly detected: unusual price movement ⚡")
-            st.markdown("**Interpretation:** Combines ARIMA prediction and anomaly detection for high-confidence signals.")
-        except Exception as e:
-            st.warning(f"Prediction could not be computed: {e}")
-    else:
-        st.warning("Not enough data for prediction (requires at least 30 days).")
+        # Determine signal
+        if predicted_price > current_price * 1.002:
+            signal = "BUY ✅"
+        elif predicted_price < current_price * 0.998:
+            signal = "SELL ❌"
+
+        # Z-score anomaly detection
+        hist['Returns'] = hist['Close'].pct_change()
+        hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
+        is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
+
+        # Display results
+        st.write(f"Predicted next-day close (ARIMA): **${predicted_price:.2f}**")
+        st.write(f"Signal: {signal}")
+        if is_anomaly:
+            st.write("Anomaly detected: unusual price movement ⚡")
+
+        st.markdown(
+            "**Interpretation:** Combines ARIMA prediction and anomaly detection for high-confidence signals."
+        )
+
+    except Exception as e:
+        # Fallback: linear regression if ARIMA fails
+        X = np.arange(len(close_series)).reshape(-1,1)
+        y = close_series.values
+        model = LinearRegression().fit(X, y)
+        predicted_price = model.predict(np.array([[len(close_series)]]))[0]
+        current_price = hist['Close'].iloc[-1]
+
+        if predicted_price > current_price * 1.002:
+            signal = "BUY ✅"
+        elif predicted_price < current_price * 0.998:
+            signal = "SELL ❌"
+
+        st.write(f"Predicted next-day close (Linear Regression fallback): **${predicted_price:.2f}**")
+        st.write(f"Signal: {signal}")
+        st.markdown(
+            "**Interpretation:** ARIMA failed; fallback linear regression used for prediction."
+        )
+
+else:
+    st.warning("Not enough valid data for prediction (requires at least 30 non-NaN closing prices).")
 
     # --- Déjà Vue Signals ---
     st.subheader("🔁 Déjà Vue Trading Signals")
