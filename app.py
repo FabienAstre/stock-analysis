@@ -7,11 +7,9 @@ from ta.momentum import RSIIndicator
 from ta.trend import SMAIndicator, EMAIndicator, MACD
 from ta.volatility import BollingerBands
 import plotly.graph_objects as go
-from datetime import datetime
-import requests
 
 st.set_page_config(page_title="Advanced Stock Analysis App", layout="wide")
-st.title("📊 Advanced Stock Analysis & Prediction App")
+st.title("📊 Advanced Stock Analysis & Trading Guidance App")
 
 # --- Sidebar ---
 st.sidebar.header("Settings")
@@ -19,11 +17,9 @@ tickers_input = st.sidebar.text_input("Enter Stock Tickers (comma-separated)", "
 period = st.sidebar.selectbox("Select Historical Period", ["1mo", "3mo", "6mo", "1y", "5y"])
 tickers = [t.strip().upper() for t in tickers_input.split(",")]
 
-# --- Function to fetch sentiment score (example using placeholder API) ---
+# --- Simulated Sentiment Score ---
 def get_sentiment_score(ticker):
-    # Placeholder: in practice, connect to news API / sentiment API
     try:
-        # Here we simulate a sentiment score between -1 (negative) to +1 (positive)
         return round(np.random.uniform(-1,1), 2)
     except:
         return None
@@ -43,7 +39,7 @@ for ticker in tickers:
         latest_price = hist['Close'].iloc[-1]
         st.metric(label="Latest Closing Price", value=f"${latest_price:.2f}")
 
-        # --- Candlestick Chart with Bollinger Bands & MACD ---
+        # --- Candlestick + Bollinger + MACD ---
         st.subheader("Candlestick Chart + Bollinger Bands + MACD")
         hist['SMA20'] = SMAIndicator(hist['Close'], 20).sma_indicator()
         bb = BollingerBands(hist['Close'], 20, 2)
@@ -66,15 +62,17 @@ for ticker in tickers:
         fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_lower'], line=dict(color='orange'), name='BB Lower'))
         fig.update_layout(height=500, title=f"{ticker} Candlestick + Bollinger Bands", xaxis_title="Date", yaxis_title="Price")
         st.plotly_chart(fig, use_container_width=True)
+
         st.markdown("""
-        **Interpretation:**  
-        - Candlestick chart shows daily price action.  
-        - Bollinger Bands indicate volatility; price near upper band may be overbought, lower band oversold.  
-        - MACD signals trend strength and potential reversals.
+        **Interpretation & Actions:**  
+        - Price near **upper Bollinger Band** → potential overbought → consider caution or sell.  
+        - Price near **lower Bollinger Band** → potential oversold → consider buy.  
+        - **MACD line crosses above signal** → bullish trend → consider buying.  
+        - **MACD line crosses below signal** → bearish trend → consider selling or holding off.
         """)
 
-        # --- Advanced Prediction Signals (Linear Regression + Anomaly) ---
-        st.subheader("Advanced Prediction Signals")
+        # --- Advanced Prediction + Anomaly ---
+        st.subheader("Advanced Prediction & Anomaly Signals")
         lookback = 30
         if len(hist) >= lookback:
             hist['Day'] = np.arange(len(hist))
@@ -86,7 +84,6 @@ for ticker in tickers:
             predicted_price = model.predict(next_day)[0]
             current_price = hist['Close'].iloc[-1]
 
-            # Anomaly detection (Z-score)
             hist['Returns'] = hist['Close'].pct_change()
             hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / hist['Returns'].std()
             is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
@@ -101,11 +98,16 @@ for ticker in tickers:
             if is_anomaly:
                 st.warning("Anomaly detected: unusual price movement ⚡")
         else:
-            st.warning("Not enough data for prediction (needs at least 30 days).")
+            st.warning("Not enough data for prediction.")
 
-        st.markdown("**Interpretation:** Combines short-term regression prediction and anomaly detection to provide high-confidence signals.")
+        st.markdown("""
+        **Interpretation & Actions:**  
+        - Prediction > current price → potential buy  
+        - Prediction < current price → potential sell  
+        - Large Z-score anomaly → market behaving unusually, use caution
+        """)
 
-        # --- Déjà Vue Trading Signals ---
+        # --- Déjà Vue Trading ---
         st.subheader("🔁 Déjà Vue Trading Signals")
         pattern_length = 5
         threshold_similarity = 0.95
@@ -121,20 +123,33 @@ for ticker in tickers:
             st.dataframe(matches_df)
         else:
             st.info("No similar historical patterns found.")
-        st.markdown("**Interpretation:** Detects repeating historical price patterns. High similarity may suggest history could repeat.")
 
-        # --- Trending & Mean-Reversion Signals ---
-        st.subheader("📊 Trending & Mean-Reversion Signals")
+        st.markdown("""
+        **Interpretation & Actions:**  
+        - High similarity patterns → history may repeat  
+        - If past pattern led to gains → potential buy  
+        - If past pattern led to losses → potential caution or sell  
+        - Always combine with trend, RSI, and volatility indicators
+        """)
+
+        # --- Trending & Mean-Reversion ---
+        st.subheader("Trending & Mean-Reversion Signals")
         hist['SMA50'] = hist['Close'].rolling(50).mean()
         hist['SMA200'] = hist['Close'].rolling(200).mean()
         hist['Trend'] = np.where(hist['SMA50'] > hist['SMA200'], 'Uptrend', 'Downtrend')
         st.write("Latest Trend Signal:", hist['Trend'].iloc[-1])
         hist['Deviation'] = (hist['Close'] - hist['SMA50']) / hist['SMA50']
         if hist['Deviation'].iloc[-1] > 0.03:
-            st.warning("Price above SMA50 by >3%: potential mean-reversion")
+            st.warning("Price above SMA50 by >3% → potential pullback")
         elif hist['Deviation'].iloc[-1] < -0.03:
-            st.success("Price below SMA50 by >3%: potential mean-reversion")
-        st.markdown("**Interpretation:** Trend shows market direction. Deviation indicates potential pullback or rebound.")
+            st.success("Price below SMA50 by >3% → potential bounce")
+
+        st.markdown("""
+        **Interpretation & Actions:**  
+        - Uptrend + slight pullback → consider buying  
+        - Downtrend + slight bounce → consider short-term profit  
+        - Large deviation → watch for mean-reversion
+        """)
 
         # --- Price to Tangible Book ---
         st.subheader("💰 Price to Tangible Book (PTB)")
@@ -143,28 +158,44 @@ for ticker in tickers:
             intangible = stock.info.get('intangibleAssets', 0)
             ptb = stock.info['currentPrice'] / (book_value - intangible)
             st.write(f"Price to Tangible Book: **{ptb:.2f}**")
-            st.markdown("**Interpretation:** PTB < 1 may indicate undervalued relative to tangible assets.")
+            if ptb < 1:
+                st.success("PTB < 1 → potentially undervalued")
+            else:
+                st.info("PTB > 1 → consider valuation")
         except:
             st.write("PTB not available")
 
-        # --- Situational Analysis & Sentiment Score ---
-        st.subheader("🧐 Situational Analysis & Sentiment Score")
+        st.markdown("""
+        **Interpretation & Actions:**  
+        - PTB < 1 + bullish indicators → consider buying  
+        - PTB > 1 + bearish indicators → consider caution or selling
+        """)
+
+        # --- Situational Analysis & Sentiment ---
+        st.subheader("Situational Analysis & Sentiment Score")
         rsi = RSIIndicator(hist['Close'], 14).rsi().iloc[-1]
         vol_percent = (hist['Close'].iloc[-1] - hist['Close'].iloc[-20:].mean()) / hist['Close'].iloc[-20:].mean() * 100
         sentiment_score = get_sentiment_score(ticker)
-        st.write(f"Sentiment Score (simulated): {sentiment_score} (-1=negative, +1=positive)")
+        st.write(f"Simulated Sentiment Score: {sentiment_score} (-1 negative → +1 positive)")
 
         if rsi > 70:
-            st.warning("RSI indicates overbought")
+            st.warning("RSI > 70 → overbought")
         elif rsi < 30:
-            st.success("RSI indicates oversold")
+            st.success("RSI < 30 → oversold")
         if hist['Close'].iloc[-1] >= stock.info.get('fiftyTwoWeekHigh',0) * 0.98:
             st.info("Price near 52-week high")
         elif hist['Close'].iloc[-1] <= stock.info.get('fiftyTwoWeekLow',0) * 1.02:
             st.info("Price near 52-week low")
         if abs(vol_percent) > 5:
             st.write(f"Significant deviation from 20-day mean: {vol_percent:.2f}%")
-        st.markdown("**Interpretation:** Combines RSI, 52-week levels, volatility, and sentiment for comprehensive situational insights.")
+
+        st.markdown("""
+        **Interpretation & Actions:**  
+        - Combine RSI, volatility, 52-week levels, and sentiment  
+        - Positive sentiment + oversold → strong buy opportunity  
+        - Negative sentiment + overbought → consider selling  
+        - Significant deviation → monitor for reversals
+        """)
 
     except Exception as e:
         st.error(f"Error processing {ticker}: {e}")
