@@ -188,12 +188,33 @@ except Exception as e:
 
 # --- Déjà Vue Signals ---
 st.subheader("🔁 Déjà Vue Trading Signals")
+
 if matches:
     matches_df = pd.DataFrame(matches, columns=['Index','Date','Similarity'])
-    st.dataframe(matches_df)
+    matches_df['Date'] = pd.to_datetime(matches_df['Date']).dt.date
+    matches_df = matches_df.sort_values(by="Similarity", ascending=False)
+
+    # Show top 3 similar patterns
+    top_matches = matches_df.head(3)
+
+    st.write("**Top Similar Historical Patterns**")
+    st.table(top_matches.style.format({"Similarity": "{:.2%}"}))
+
+    # Visualization: similarity bar chart
+    st.bar_chart(top_matches.set_index("Date")["Similarity"])
+
+    # Best match interpretation
+    best = top_matches.iloc[0]
+    st.markdown(
+        f"📌 The current price pattern most closely resembles **{best['Date']}** "
+        f"with a similarity of **{best['Similarity']:.2%}**. "
+    )
+
 else:
     st.write("No similar historical patterns found.")
-st.markdown("**Interpretation:** Detects repeating historical patterns.")
+
+st.markdown("**Interpretation:** Identifies repeating price patterns from history to spot potential déjà vu market moves.")
+
 
 # --- Trending & Mean-Reversion ---
 st.subheader("📊 Trending & Mean-Reversion Signals")
