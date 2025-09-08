@@ -39,26 +39,12 @@ tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
 def get_history(ticker: str, period: str) -> pd.DataFrame:
     ticker_obj = yf.Ticker(ticker)
     hist = ticker_obj.history(period=period)
-    # keep a simple index (date) in case of timezone issues
     hist.index = pd.to_datetime(hist.index)
     return hist
-
-@st.cache_data
-def get_fast_info(ticker: str) -> dict:
-    t = yf.Ticker(ticker)
-    try:
-        return t.fast_info or {}
-    except Exception:
-        # older yfinance versions may have get_info
-        try:
-            return t.get_info() or {}
-        except Exception:
-            return {}
 
 # indicator computation
 def compute_indicators(hist: pd.DataFrame):
     h = hist.copy()
-    # Safely compute indicators in try/except to avoid crashing the whole app
     try:
         h[f'SMA{user_sma_short}'] = SMAIndicator(h['Close'], user_sma_short).sma_indicator()
     except Exception:
@@ -120,25 +106,21 @@ def predict_price_ensemble(h: pd.DataFrame, lookback: int = 60, use_prophet_flag
     if len(close_series) < lookback:
         return result
     window = close_series[-lookback:]
-    current_price = close_series.iloc[-1]
+    current_price = window.iloc[-1]
     preds = []
-    # ARIMA
     try:
         arima_model = ARIMA(window, order=(5,1,0)).fit()
         arima_pred = arima_model.forecast(steps=1)[0]
         preds.append(arima_pred)
     except Exception:
-        arima_pred = None
-    # Linear Regression
+        pass
     try:
         X = np.arange(len(window)).reshape(-1,1)
         lr = LinearRegression().fit(X, window.values)
         lr_pred = lr.predict(np.array([[len(window)]]))[0]
         preds.append(lr_pred)
     except Exception:
-        lr_pred = None
-    # Prophet (optional)
-    prophet_pred = None
+        pass
     if use_prophet_flag and PROPHET_AVAILABLE:
         try:
             dfp = window.reset_index()
@@ -151,7 +133,7 @@ def predict_price_ensemble(h: pd.DataFrame, lookback: int = 60, use_prophet_flag
             preds.append(prophet_pred)
             result['conf_interval'] = (fc['yhat_lower'].iloc[-1], fc['yhat_upper'].iloc[-1])
         except Exception:
-            prophet_pred = None
+            pass
     if preds:
         predicted_price = float(np.mean(preds))
         result['predicted_price'] = predicted_price
@@ -173,77 +155,48 @@ for ticker in tickers:
         st.warning(f"No historical data available for {ticker}.")
         continue
 
-    # compute indicators
     hist = compute_indicators(hist)
 
     latest_price = hist['Close'].iloc[-1]
     st.subheader("Latest Closing Price")
     st.metric(label="Price", value=f"${latest_price:.2f}")
 
-    # Déjà Vue
     matches = deja_vue_matches(hist)
-
-    # Predictions
     pred = predict_price_ensemble(hist, lookback=60, use_prophet_flag=use_prophet)
 
-    # Anomaly detection (z-score on returns)
     hist['Returns'] = hist['Close'].pct_change()
     hist['ZScore'] = (hist['Returns'] - hist['Returns'].mean()) / (hist['Returns'].std() if hist['Returns'].std() != 0 else 1)
     is_anomaly = abs(hist['ZScore'].iloc[-1]) > 2
 
-    # --- Plot: separate volume subplot for clarity ---
     fig = make_subplots(rows=3, cols=1, shared_xaxes=True, row_heights=[0.55, 0.15, 0.2], vertical_spacing=0.03)
-
-    # Row 1: Candlestick + SMA/EMA/Bollinger
     fig.add_trace(go.Candlestick(x=hist.index, open=hist['Open'], high=hist['High'], low=hist['Low'], close=hist['Close'], name='Price'), row=1, col=1)
-    # optional overlays
     try:
         fig.add_trace(go.Scatter(x=hist.index, y=hist[f'SMA{user_sma_short}'], name=f'SMA{user_sma_short}'), row=1, col=1)
-    except Exception:
-        pass
-    try:
         fig.add_trace(go.Scatter(x=hist.index, y=hist[f'SMA{user_sma_long}'], name=f'SMA{user_sma_long}'), row=1, col=1)
-    except Exception:
-        pass
-    try:
         fig.add_trace(go.Scatter(x=hist.index, y=hist[f'EMA{user_ema}'], name=f'EMA{user_ema}', line=dict(dash='dot')), row=1, col=1)
-    except Exception:
-        pass
-    try:
         fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_upper'], name='BB Upper', line=dict(dash='dash')), row=1, col=1)
         fig.add_trace(go.Scatter(x=hist.index, y=hist['BB_lower'], name='BB Lower', line=dict(dash='dash')), row=1, col=1)
     except Exception:
         pass
-
-    # Déjà Vue markers
     if show_deja and matches:
         for match in matches:
             fig.add_vline(x=match[1], line_width=1, line_dash="dot", line_color="purple")
-
-    # anomaly marker
     if is_anomaly:
         fig.add_trace(go.Scatter(x=[hist.index[-1]], y=[hist['Close'].iloc[-1]], mode='markers', marker=dict(size=10, symbol='diamond'), name='Anomaly'), row=1, col=1)
-
-    # Row 2: Volume bars
     fig.add_trace(go.Bar(x=hist.index, y=hist['Volume'], name='Volume', opacity=0.5), row=2, col=1)
     try:
         fig.add_trace(go.Scatter(x=hist.index, y=hist['Volume_SMA20'], name='Vol SMA20'), row=2, col=1)
     except Exception:
         pass
-
-    # Row 3: MACD
     try:
         fig.add_trace(go.Scatter(x=hist.index, y=hist['MACD'], name='MACD'), row=3, col=1)
         fig.add_trace(go.Scatter(x=hist.index, y=hist['MACD_signal'], name='MACD Signal', line=dict(dash='dot')), row=3, col=1)
     except Exception:
         pass
-
     fig.update_layout(height=800, title_text=f"{ticker} Price Chart + Indicators")
     st.plotly_chart(fig, use_container_width=True)
 
-    # --- Signals summary ---
     st.subheader("📊 Trending & Mean-Reversion Signals")
-    # handle potential NaNs when comparing
     try:
         trend_signal = "Uptrend" if hist[f'EMA{user_ema}'].iloc[-1] > hist[f'SMA{user_sma_short}'].iloc[-1] else "Downtrend"
     except Exception:
@@ -254,7 +207,6 @@ for ticker in tickers:
 
     st.write(f"Latest Trend Signal: {trend_signal}")
     st.write(f"RSI: {rsi_val if rsi_val is not None else 'N/A'} | ADX: {adx_val if adx_val is not None else 'N/A'} | Volume Trend (SMA20): {vol_trend if vol_trend is not None else 'N/A'}")
-
     st.markdown("""
     **Explanation:**  
     - **EMA vs SMA:** Short-term EMA above SMA indicates bullish momentum; below indicates bearish.  
@@ -263,14 +215,16 @@ for ticker in tickers:
     - **Volume Trend (SMA20):** Rising volume confirms market participation.
     """)
 
-    # --- PTB (use fast_info / get_info safely) ---
     st.subheader("💰 Price to Tangible Book (PTB)")
-    info = get_fast_info(ticker)
-    ptb = info.get('priceToBook') or info.get('priceToBookMRQ') or info.get('priceToBookTrailing12Months') or 'N/A'
+    try:
+        t = yf.Ticker(ticker)
+        info = t.fast_info if hasattr(t, 'fast_info') else {}
+        ptb = info.get('priceToBook') or 'N/A'
+    except Exception:
+        ptb = 'N/A'
     st.write(f"Price to Tangible Book: {ptb}")
     st.markdown("**Explanation:** PTB <1 may indicate undervalued relative to tangible assets.")
 
-    # --- Key Reasons & Recommendation ---
     reasons = [f"Trend: {trend_signal}"]
     if rsi_val is not None:
         if rsi_val < 30:
@@ -313,7 +267,6 @@ for ticker in tickers:
     st.subheader("📌 Overall Recommendation")
     st.markdown(f"**{pred['signal']}**")
 
-    # show Prophet availability note
     if use_prophet and not PROPHET_AVAILABLE:
         st.warning("Prophet requested but not available in this environment. Uncheck 'Use Prophet' or install prophet/cmdstanpy.")
 
